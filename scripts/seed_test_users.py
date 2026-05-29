@@ -29,21 +29,21 @@ from datetime import datetime, timezone, timedelta
 
 TEST_USERS = [
     {
-        "email": "subscriber@safeearth.test",
+        "email": "subscriber@safeearth.dev",
         "password": "SafeEarth2026!",
         "full_name": "Test Subscriber",
         "role": UserRole.subscriber,
         "premium_expires_at": None,
     },
     {
-        "email": "premium@safeearth.test",
+        "email": "premium@safeearth.dev",
         "password": "SafeEarth2026!",
         "full_name": "Test Premium",
         "role": UserRole.premium,
         "premium_expires_at": datetime.now(timezone.utc) + timedelta(days=365),
     },
     {
-        "email": "admin@safeearth.test",
+        "email": "admin@safeearth.dev",
         "password": "SafeEarth2026!",
         "full_name": "Test Admin",
         "role": UserRole.admin,
