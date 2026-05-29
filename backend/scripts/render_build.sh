@@ -10,13 +10,10 @@ pip install -r backend/requirements.txt
 # Generate precomputed EM-DAT JSON files (idempotent — fast if already present)
 python scripts/generate_emdat_stats.py
 
-# NOTE: RAG ingest (backend/rag/ingest.py) is NOT run here.
-# Reason: it downloads ~80MB sentence-transformers model + generates 167 embeddings —
-# too slow/memory-heavy for Render free-tier builds. The app starts with rag_loaded=false
-# and automatically falls back to the seeded recommendations DB table (12 rows).
-# To enable live RAG: SSH into the Render service and run:
-#   python backend/rag/ingest.py
-# or upgrade to a paid Render plan with more build resources.
+# Extract PDF safety guidelines into chapters.json (fast, no ML deps — uses only PyMuPDF).
+# Replaces the old ChromaDB+sentence-transformers pipeline which required PyTorch (~2 GB)
+# and caused OOM on Render's 512 MB free tier.
+python backend/rag/extract_chapters.py
 
 # Apply any pending Alembic migrations
 # alembic.ini lives in the project root — run from there, not from backend/

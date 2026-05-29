@@ -1,48 +1,50 @@
 """
-backend/rag/recommender.py — Runtime RAG pipeline.
+backend/rag/recommender.py — Runtime RAG pipeline (chapter-based Groq).
 
-Module-level singletons (embedder + ChromaDB collection + Groq client) are
-populated by load_rag() in the FastAPI lifespan in main.py.
+Architecture (Render-free-tier compatible):
+  - At startup: load chapters.json (plain text, no PyTorch, no ChromaDB).
+  - At query time: look up the chapter for the requested disaster_type,
+    send it as context to Groq llama-3.1-8b-instant, parse 6 recommendations.
+  - Falls back to the recommendations DB table on any Groq failure.
 
-Cardinal rules — any violation breaks the latency budget or correctness contract:
-  - load_rag()             NEVER called from a route or service function
-  - SentenceTransformer    NEVER instantiated per-request (cached at startup)
-  - PersistentClient       NEVER instantiated per-request (cached at startup)
-  - Groq client            NEVER instantiated per-request (cached at startup)
-  - get_recommendations()  NEVER called from a router (service layer only)
+Why chapters instead of ChromaDB:
+  sentence-transformers pulls in PyTorch + CUDA packages (~2 GB), which causes
+  OOM on Render's 512 MB free tier.  Chapter-level retrieval requires only the
+  `groq` SDK (already in requirements.txt) and the pre-extracted chapters.json.
+
+Cardinal rules (unchanged from original):
+  - load_rag()            NEVER called from a route or service function
+  - Groq client           NEVER instantiated per-request (cached at startup)
+  - get_recommendations() NEVER called from a router (service layer only)
 """
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Optional
+from pathlib import Path
+from typing import Any
 
 from config import get_settings
-from rag.constants import CHROMA_PATH, COLLECTION_NAME, EMBED_MODEL
 from schemas.recommendation import RecommendationItem
 
-if TYPE_CHECKING:
-    import chromadb
-    from sentence_transformers import SentenceTransformer
+# ── Paths ─────────────────────────────────────────────────────────────────────
+
+_THIS_DIR     = Path(__file__).resolve().parent
+CHAPTERS_PATH = _THIS_DIR / "chapters.json"
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
-RAG_TOP_K            = 5                       # ChromaDB top-k retrieved chunks
 RECOMMENDATION_COUNT = 6                       # Per CLAUDE.md Feature 5 contract
 GROQ_MODEL           = "llama-3.1-8b-instant"  # Per CLAUDE.md RAG Pipeline spec
 GROQ_TEMPERATURE     = 0.3                     # Per CLAUDE.md RAG Pipeline spec
 
-_CATEGORY_ORDER  = ["evacuation", "kit", "shelter", "medical", "contact"]
-_CATEGORY_RANK   = {c: i for i, c in enumerate(_CATEGORY_ORDER)}
+_CATEGORY_ORDER   = ["evacuation", "kit", "shelter", "medical", "contact"]
+_CATEGORY_RANK    = {c: i for i, c in enumerate(_CATEGORY_ORDER)}
 _VALID_CATEGORIES = set(_CATEGORY_ORDER)
 
-
 # ── Module-level singletons — None until load_rag() runs at startup ───────────
-# Types use Any to avoid importing heavy libraries (torch/chromadb) at module load.
 
-_embedder:      Any = None   # SentenceTransformer | None
-_chroma_client: Any = None   # chromadb.PersistentClient | None
-_collection:    Any = None   # chromadb.Collection | None
-_groq_client:   Any = None   # groq.Groq | None
+_chapters:    dict[str, str] | None = None   # {emdat_disaster_type: chapter_text}
+_groq_client: Any                   = None   # groq.Groq | None
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
@@ -51,53 +53,43 @@ class GroqUnavailableError(Exception):
     """Raised when Groq cannot deliver a valid 6-item JSON response.
 
     The service layer catches this and falls back to the `recommendations` DB
-    table (Phase 4 Step 5 in CLAUDE.md). Reasons include: missing/invalid
-    GROQ_API_KEY, network error, rate-limit, malformed JSON, wrong item count,
-    invalid category value, or any per-item Pydantic validation failure.
+    table.  Reasons: missing GROQ_API_KEY, network error, rate-limit,
+    malformed JSON, wrong item count, invalid category, or Pydantic failure.
     """
 
 
 # ── Startup loader ────────────────────────────────────────────────────────────
 
 def load_rag() -> None:
-    """Initialise embedder + ChromaDB collection + Groq client.
+    """Load chapters.json and initialise the Groq client.
 
     Called ONCE in the FastAPI lifespan context manager in main.py.
     Never call from a route or service function.
 
     Raises:
-        FileNotFoundError: if the ChromaDB store hasn't been built yet.
+        FileNotFoundError: if chapters.json hasn't been generated yet.
+            Fix: run  py -3.12 backend/rag/extract_chapters.py
     """
-    global _embedder, _chroma_client, _collection, _groq_client
+    global _chapters, _groq_client
 
-    if not CHROMA_PATH.exists():
+    if not CHAPTERS_PATH.exists():
         raise FileNotFoundError(
-            f"ChromaDB store missing: {CHROMA_PATH}\n"
-            f"Run: py -3.12 backend/rag/ingest.py from the project root."
+            f"chapters.json missing: {CHAPTERS_PATH}\n"
+            f"Run: py -3.12 backend/rag/extract_chapters.py from the project root."
         )
 
-    # Lazy imports — only reach here if ChromaDB store exists.
-    # Keeps torch (~500 MB) and chromadb off the import path on Render free tier
-    # where the store is absent and load_rag() exits via FileNotFoundError above.
-    import chromadb as _chromadb  # noqa: PLC0415
-    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
-
-    _embedder      = SentenceTransformer(EMBED_MODEL)
-    _chroma_client = _chromadb.PersistentClient(path=str(CHROMA_PATH))
-    _collection    = _chroma_client.get_collection(COLLECTION_NAME)
+    _chapters = json.loads(CHAPTERS_PATH.read_text(encoding="utf-8"))
+    print(f"  Chapters     : {len(_chapters)} disaster types loaded from chapters.json")
 
     settings = get_settings()
     if settings.groq_api_key:
-        # Local import — keeps `groq` off the import path for tests that don't need it
-        from groq import Groq
+        from groq import Groq  # local import — keeps groq off path for tests
         _groq_client = Groq(api_key=settings.groq_api_key)
-        groq_status = "ready"
+        groq_status  = f"ready (model={GROQ_MODEL})"
     else:
         _groq_client = None
         groq_status  = "DISABLED (GROQ_API_KEY empty — fallback to DB recommendations)"
 
-    print(f"  Embedder     : {EMBED_MODEL}")
-    print(f"  ChromaDB     : collection={COLLECTION_NAME} chunks={_collection.count()}")
     print(f"  Groq         : {groq_status}")
 
 
@@ -108,40 +100,30 @@ def get_recommendations(
     severity: str,
     region_name: str,
 ) -> list[RecommendationItem]:
-    """Run the runtime RAG pipeline and return exactly 6 recommendations.
-
-    Query string is built EXACTLY per CLAUDE.md RAG Flow:
-        "{severity} {disaster_type} emergency safety recommendations {region_name}"
-
-    Returns:
-        Exactly 6 RecommendationItem objects, sorted:
-        evacuation -> kit -> shelter -> medical -> contact.
+    """Return exactly 6 recommendations using chapter context + Groq.
 
     Raises:
         RuntimeError: if load_rag() was not called at startup.
-        GroqUnavailableError: any Groq failure or malformed response — the
-            service layer catches this and falls back to the DB table.
+        GroqUnavailableError: any Groq failure — service layer catches this
+            and falls back to the DB recommendations table.
     """
-    if _collection is None or _embedder is None:
+    if _chapters is None:
         raise RuntimeError(
             "RAG not loaded — load_rag() must run in the FastAPI lifespan at startup."
         )
     if _groq_client is None:
         raise GroqUnavailableError("Groq client not initialised (GROQ_API_KEY missing)")
 
-    query = f"{severity} {disaster_type} emergency safety recommendations {region_name}"
-
-    q_emb   = _embedder.encode([query], convert_to_numpy=True).tolist()
-    results = _collection.query(
-        query_embeddings=q_emb,
-        n_results=RAG_TOP_K,
-        include=["documents", "metadatas"],
+    chapter_text = _chapters.get(disaster_type) or _chapters.get(
+        next((k for k in _chapters if k.lower() == disaster_type.lower()), ""),
+        "",
     )
-    chunks: list[str] = results.get("documents", [[]])[0]
-    if not chunks:
-        raise GroqUnavailableError("ChromaDB returned no chunks for query")
+    if not chapter_text:
+        raise GroqUnavailableError(
+            f"No chapter found for disaster_type={disaster_type!r}"
+        )
 
-    user_prompt = _build_user_prompt(disaster_type, severity, region_name, chunks)
+    user_prompt = _build_user_prompt(disaster_type, severity, region_name, chapter_text)
 
     try:
         completion = _groq_client.chat.completions.create(
@@ -180,9 +162,11 @@ def _build_user_prompt(
     disaster_type: str,
     severity: str,
     region_name: str,
-    chunks: list[str],
+    chapter_text: str,
 ) -> str:
-    context = "\n\n---\n\n".join(chunks)
+    # Truncate chapter to ~6000 chars to stay well within Groq's context window
+    # while keeping the prompt fast.  The full chapter is ~3000–5000 chars.
+    context = chapter_text[:6000]
     return (
         f"Disaster type: {disaster_type}\n"
         f"Severity: {severity}\n"
@@ -190,7 +174,7 @@ def _build_user_prompt(
         f"Context from official safety guidelines:\n{context}\n\n"
         f"Return JSON in this exact shape:\n"
         f'{{"recommendations": [{{"category": "evacuation", "title": "...", "body": "..."}}, '
-        f'... 6 items total]}}'
+        f"... 6 items total]}}"
     )
 
 
@@ -209,9 +193,7 @@ def _parse_and_validate(raw_json: str) -> list[RecommendationItem]:
 
     items_raw = data.get("recommendations")
     if not isinstance(items_raw, list):
-        raise GroqUnavailableError(
-            "Groq response missing 'recommendations' list"
-        )
+        raise GroqUnavailableError("Groq response missing 'recommendations' list")
 
     if len(items_raw) != RECOMMENDATION_COUNT:
         raise GroqUnavailableError(
