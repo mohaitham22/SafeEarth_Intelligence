@@ -18,3 +18,8 @@ python backend/rag/extract_chapters.py
 # Apply any pending Alembic migrations
 # alembic.ini lives in the project root — run from there, not from backend/
 alembic upgrade head
+
+# Seed recommendations table (idempotent — skips rows that already exist).
+# Ensures all 8 disaster types x 4 severity levels have 6 fallback rows
+# so the RAG DB fallback works for every prediction when Groq is unavailable.
+python scripts/seed_recommendations.py
