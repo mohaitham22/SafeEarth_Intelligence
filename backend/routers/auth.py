@@ -52,6 +52,7 @@ async def login(
     return TokenResponse(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
+        role=user.role.value,
     )
 
 

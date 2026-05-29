@@ -116,18 +116,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const tokens = (await res.json()) as AuthTokens
         const decoded = decodeJwtPayload(tokens.access_token)
 
-        // Role is not in the JWT (backend stores it only in DB). Default to
-        // "subscriber" — anyone who passes verified-login is at least that.
-        // TODO(phase-5b): add GET /auth/me and replace this default.
-        const role: UserRole = "subscriber"
-
         return {
           id:           decoded?.sub ?? "",
           email,
           name:         null,
           accessToken:  tokens.access_token,
           refreshToken: tokens.refresh_token,
-          role,
+          role:         tokens.role ?? "subscriber",
         }
       },
     }),

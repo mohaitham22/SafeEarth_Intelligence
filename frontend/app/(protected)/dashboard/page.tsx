@@ -52,6 +52,7 @@ type Tab = "overview" | "predictions" | "alerts" | "subscriptions" | "admin"
 
 export default function DashboardPage() {
   const { data: session } = useSession()
+  const role = session?.user?.role
   const [tab, setTab] = useState<Tab>("overview")
 
   return (
@@ -78,7 +79,7 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <Tabs value={tab} onChange={setTab} />
+        <Tabs value={tab} onChange={setTab} showAdmin={role === "admin"} />
 
         <div className="mt-6">
           {/* useSearchParams() inside PredictionForm needs a Suspense parent
@@ -89,7 +90,7 @@ export default function DashboardPage() {
           {tab === "predictions"   && <PredictionsHistoryTab />}
           {tab === "alerts"        && <AlertsTab />}
           {tab === "subscriptions" && <SubscriptionsTab />}
-          {tab === "admin"         && <ComingSoon body={S("dashboard.coming.admin")} />}
+          {tab === "admin"         && <AdminRedirectTab />}
         </div>
       </main>
     </>
@@ -99,13 +100,13 @@ export default function DashboardPage() {
 // ──────────────────────────────────────────────────────────────────────────
 // Tabs
 
-function Tabs({ value, onChange }: { value: Tab; onChange: (t: Tab) => void }) {
+function Tabs({ value, onChange, showAdmin }: { value: Tab; onChange: (t: Tab) => void; showAdmin: boolean }) {
   const items: { id: Tab; label: string }[] = [
     { id: "overview",      label: S("dashboard.tab.overview") },
     { id: "predictions",   label: S("dashboard.tab.predictions") },
     { id: "alerts",        label: S("dashboard.tab.alerts") },
     { id: "subscriptions", label: S("dashboard.tab.subscriptions") },
-    { id: "admin",         label: S("dashboard.tab.admin") },
+    ...(showAdmin ? [{ id: "admin" as Tab, label: S("dashboard.tab.admin") }] : []),
   ]
   return (
     <nav className="mt-6 border-b border-slate-200" role="tablist">
@@ -139,6 +140,20 @@ function ComingSoon({ body }: { body: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
       {body}
+    </div>
+  )
+}
+
+function AdminRedirectTab() {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+      <p className="text-slate-600 mb-4">Open the full admin panel to manage users, view model stats, and dispatch alerts.</p>
+      <a
+        href="/admin"
+        className="inline-block px-5 py-2.5 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-700"
+      >
+        Go to Admin Panel →
+      </a>
     </div>
   )
 }

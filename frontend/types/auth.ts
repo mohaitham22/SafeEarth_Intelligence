@@ -25,6 +25,7 @@ export interface AuthTokens {
   access_token: string
   refresh_token: string
   token_type: string        // always "bearer"
+  role: UserRole
 }
 
 export interface TokenRefreshRequest {
