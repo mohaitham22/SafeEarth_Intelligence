@@ -1,3 +1,17 @@
-# Phase 8 — local dev only
-# Defines: postgres service for local development
-# Run with: docker-compose up -d postgres
+version: "3.9"
+services:
+  postgres:
+    image: postgres:15
+    container_name: safeearth-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: safeearth
+    ports:
+      - "5432:5432"
+    volumes:
+      - safeearth-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  safeearth-pgdata:

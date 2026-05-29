@@ -86,7 +86,7 @@ async def predict(
 # ── POST /predictions/forecast-30d ───────────────────────────────────────────
 
 @router.post("/forecast-30d", response_model=List[ForecastDayResponse], status_code=status.HTTP_200_OK)
-@limiter.limit("5/hour")
+@limiter.limit("8/hour")
 async def forecast_30d(
     request: Request,
     body: ForecastRequest,

@@ -74,6 +74,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 }, // 7 days
   pages:   { signIn: "/login" },
 

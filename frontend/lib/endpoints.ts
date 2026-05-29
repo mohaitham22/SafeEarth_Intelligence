@@ -9,6 +9,11 @@ import { api, apiClient } from "./api"
 import type { AxiosInstance } from "axios"
 
 import type {
+  AdminUser,
+  AdminUsersResponse,
+  DataStatus,
+  DispatchResult,
+  PatchUserRequest,
   AlertHistoryResponse,
   AuthTokens,
   CheckoutRequest,
@@ -185,6 +190,36 @@ export const premium = {
 }
 
 // ---------------------------------------------------------------------------
+// /admin  (Admin role only — apiClient attaches JWT automatically)
+// ---------------------------------------------------------------------------
+export const admin = {
+  users: (
+    params: { page?: number; page_size?: number } = {},
+    client: AxiosClient = apiClient,
+  ) =>
+    client
+      .get<AdminUsersResponse>("/admin/users", { params })
+      .then((r) => r.data),
+
+  patchUser: (
+    id: string,
+    body: PatchUserRequest,
+    client: AxiosClient = apiClient,
+  ) =>
+    client
+      .patch<AdminUser>(`/admin/users/${id}`, body)
+      .then((r) => r.data),
+
+  dataStatus: (client: AxiosClient = apiClient) =>
+    client.get<DataStatus>("/admin/data-status").then((r) => r.data),
+
+  manualDispatch: (client: AxiosClient = apiClient) =>
+    client
+      .post<DispatchResult>("/alerts/dispatch", { alert_type: "weekly_digest" })
+      .then((r) => r.data),
+}
+
+// ---------------------------------------------------------------------------
 // /health  (public, used by status indicators)
 // ---------------------------------------------------------------------------
 export interface HealthResponse {
@@ -210,4 +245,5 @@ export const endpoints = {
   alerts,
   premium,
   health,
+  admin,
 }

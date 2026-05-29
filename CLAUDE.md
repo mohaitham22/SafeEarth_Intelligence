@@ -4,8 +4,8 @@
 Web app that predicts natural disasters for any region on Earth, estimates human/economic impact,
 alerts users via automated email, and generates AI-powered safety recommendations using a RAG pipeline
 on official disaster safety guidelines PDFs. Also includes 30-day risk forecasting and global analytics.
-Stack: Next.js 14 + FastAPI (Python 3.11) + PostgreSQL 15 (Neon) + XGBoost/RF + ChromaDB + Groq.
-**Current Phase: Phase 7 complete + dashboard tab polish. Alerts / Subscriptions / Predictions History tabs fully wired up (were `ComingSoon` placeholders). 115/115 backend tests passing. Frontend 15/15 routes prerendered, `npm run build` clean. Next: Phase 8 (30-Day Forecast page + Time Series page + PWA + deployment).**
+Stack: Next.js 14 + FastAPI (Python 3.11) + PostgreSQL 15 (Neon) + XGBoost/RF + Groq (chapter-based RAG).
+**v1 complete. All 8 phases done. Live at safeearth.tech (Vercel frontend + Render backend). 115/115 backend tests. 17/17 frontend routes prerendered.**
 
 ---
 
@@ -20,7 +20,7 @@ Phase 4  ✅ DONE         RAG pipeline: Semantic chunking + ChromaDB + Groq + /r
 Phase 5  ✅ DONE         Frontend: Next.js 14 + NextAuth v5 + Leaflet heatmap + Recharts analytics + 30-day forecast + auth-aware Nav + middleware. New backend endpoint /regions/risk-map. 69/69 suite green, `npm run build` clean
 Phase 6  ✅ DONE         Alerts + n8n + subscriptions + email (SMTP verification + Resend premium alerts). 103/103 suite green.
 Phase 7  ✅ DONE         Premium system: MockPaymentService + checkout + webhook + pricing CTAs + mock-checkout page + PDF reports + expiry checker + unsubscribe page. 115/115 tests. 15/15 routes prerendered.
-Phase 8  📋 PLANNED      30-Day Forecast + Time Series page + PWA + deployment (Vercel + Render)
+Phase 8  ✅ DONE         Admin page (real 5-tab panel) + docker-compose.yml + RAG Render fix (chapter-based Groq, no PyTorch) + CLAUDE.md v1 close-out. 115/115 tests. 17/17 routes.
 ```
 
 **Do NOT skip phases. Do NOT start Phase 3 until FastAPI runs end-to-end with DB connected.**
@@ -29,27 +29,34 @@ Phase 8  📋 PLANNED      30-Day Forecast + Time Series page + PWA + deployment
 
 ---
 
-## Current State — Phase 7 Complete, Phase 8 Next
+## Current State — v1 Complete (All 8 Phases Done)
 
-### What exists
+### Production URLs
+- **Frontend**: https://safeearth.tech (Vercel Hobby)
+- **Backend API**: https://api.safeearth.tech (Render free Web Service)
+- **Health check**: https://api.safeearth.tech/api/v1/health → `{"status":"ok","models_loaded":true,"rag_loaded":true}`
+- **API docs**: https://api.safeearth.tech/docs
+
+### What exists (full v1 inventory)
 
 - Backend: ✅ Complete — auth + regions (8 endpoints) + predictions + recommendations + admin/health/data-status + subscriptions (3 endpoints) + alerts (POST /dispatch dual-auth + GET /history) + premium (checkout + webhook + PDF reports + expiry checker) all live. pytest suite **115/115 passing**.
-- Alert system: ✅ Phase 6 complete. `dispatch_critical_alert` (BackgroundTask on Critical predictions) + `dispatch_alerts` (n8n weekly path). Fan-out rule: Subscriber → in-app Alert row only; Premium → Alert + `send_premium_alert_email` + PremiumEmailLog row. `require_dispatch_auth` dep checks X-Dispatch-Secret header OR Admin JWT.
-- Email service: ✅ `backend/services/email_service.py`. smtplib SMTP+STARTTLS for verification emails. Resend SDK for Premium alert HTML emails. Both degrade-not-fail: fall back to `_dev_log()` when credentials absent, never raise. `_dev_log` writes to `backend/../.email_dev.log` + stdout.
-- Email templates: ✅ `backend/templates/emails/verify_email.html` (green header, verify button, 24h expiry). `backend/templates/emails/premium_alert.html` (red header, severity badge, stats grid, one-click unsubscribe footer). Both Jinja2, mobile-responsive.
-- Subscriptions: ✅ POST (201 with unsubscribe_token), GET (token hidden in list), DELETE /subscriptions/{token} (PUBLIC, one-click). Enforces 3/10 region limits.
-- n8n workflow: ✅ `n8n/weekly_dispatch.json` — Schedule Trigger cron `0 8 * * 1` → POST /alerts/dispatch with `X-Dispatch-Secret: ={{ $env.ALERT_DISPATCH_SECRET }}`. active=false by default.
-- Data pipeline: ✅ Complete — **8** JSON files generated + validated, emdat_lookup module loads at startup, 8 region endpoints live with Cache-Control headers.
-- Frontend: ✅ Complete — Next.js 14 + NextAuth v5 + Tailwind v3 + Recharts + Leaflet + i18n string-keys module. 12 routes live. `npm run build` clean — 13 routes prerendered with **zero** SSR/window crashes. All API calls flow through `lib/api.ts` typed endpoint wrappers; zero hardcoded UI text.
-- Database: ✅ All 8 tables created via Alembic migration (at head). `subscriptions` table has `unsubscribe_token VARCHAR(255) UNIQUE NOT NULL` column added in Phase 6. `premium_plans` pre-seeded. `recommendations` table seeded with 12 fallback rows for DB-fallback demos. Docker container `safeearth-db` running, named volume `safeearth-pgdata`.
-- ML Models: ✅ v4.2 in `backend/saved_models/`. XGB+CatBoost ensemble (LGB dropped), 16 features, Macro F1=0.7052 / Weighted F1=0.7587.
-- RAG pipeline: ✅ Live. Semantic chunking — 167 chunks persisted to `backend/rag/chroma_db/`. all-MiniLM-L6-v2 embedder + ChromaDB + Groq llama-3.1-8b-instant. GET /recommendations + DB-fallback. Degrade-not-fail at startup.
+- RAG pipeline: ✅ **Chapter-based Groq** (replaced ChromaDB+sentence-transformers — caused OOM on Render 512 MB). `backend/rag/extract_chapters.py` (PyMuPDF) extracts PDF → `chapters.json` at Render build time. `recommender.py` loads chapters + Groq client at startup; sends chapter as context to `llama-3.1-8b-instant`. No embeddings, no vector store at runtime. `rag_loaded=true` in production.
+- Alert system: ✅ `dispatch_critical_alert` (BackgroundTask on Critical) + `dispatch_alerts` (n8n weekly). Fan-out: Subscriber→in-app; Premium→Alert+email+PremiumEmailLog. Dual auth: X-Dispatch-Secret OR Admin JWT.
+- Email service: ✅ smtplib SMTP+STARTTLS (verification) + Resend SDK (Premium alerts). Both degrade-not-fail.
+- Frontend: ✅ Next.js 14 + NextAuth v5 + Tailwind v3 + Recharts + Leaflet. **17 routes** prerendered. All API calls through `lib/api.ts`. Zero hardcoded UI text. PWA enabled (next-pwa, production only).
+- Admin page: ✅ Real 5-tab panel at `/admin` — Users (paginated table + inline role editor), Model Stats (hardcoded v4.2 metrics + live pipeline status), Manual Dispatch (POST /alerts/dispatch with Admin JWT), Payments (coming soon), Email Logs (coming soon).
+- docker-compose.yml: ✅ Defines `postgres:15` service with named volume `safeearth-pgdata`. Replaces the manual `docker run` command from Phase 1.
+- ML Models: ✅ v4.2 XGB+CatBoost ensemble, 16 features, Macro F1=0.7052 / Weighted F1=0.7587. `.pkl` files in `backend/saved_models/`.
+- Database: ✅ All 8 tables at Alembic head. Neon.tech free tier in production.
 
-### Standing Blockers
-- **Real SMTP untested**: `SMTP_USER` and `SMTP_PASSWORD` are empty in `.env`. Verification emails fall back to `_dev_log()` + console. Fix: fill Gmail credentials + 16-char App Password, then register a real account and confirm the email arrives.
-- **Real Resend untested**: `RESEND_API_KEY` is empty in `.env`. Premium alert emails fall back to `_dev_log()` with `resend_message_id = "dev-fallback-..."`. Fix: create Resend account, verify `safeearth.tech` domain, fill `RESEND_API_KEY` + `RESEND_FROM_EMAIL=alerts@safeearth.tech`.
-- **n8n not wired to live backend**: `ALERT_DISPATCH_SECRET` is empty in `.env`. Fill with `python -c "import secrets; print(secrets.token_hex(32))"` and set the same value in n8n env. Then import `n8n/weekly_dispatch.json` and activate.
-- **FRONTEND_URL not in .env**: `email_service.py` uses `settings.frontend_url` when building unsubscribe URLs. If `FRONTEND_URL` is not set, unsubscribe links in Premium emails use an empty base. Add `FRONTEND_URL=http://localhost:3000` (dev) or `FRONTEND_URL=https://safeearth.tech` (prod) to `.env`.
+### Standing Blockers (v2 items — not blocking v1)
+- **Real SMTP untested**: Verification emails fall back to `_dev_log()`. Fix: fill `SMTP_USER` + `SMTP_PASSWORD` (Gmail 16-char App Password) in Render env vars.
+- **Real Resend untested**: Premium alert emails fall back to `_dev_log()`. Fix: verify `safeearth.tech` domain in Resend, fill `RESEND_API_KEY` + `RESEND_FROM_EMAIL=alerts@safeearth.tech` in Render env vars.
+- **n8n not wired to live backend**: `ALERT_DISPATCH_SECRET` empty in Render env. Fix: generate secret + set in both Render and n8n env, import `n8n/weekly_dispatch.json`, activate.
+- **Real payment provider**: `PAYMENT_PROVIDER=mock`. Fix in v2: implement `StripePaymentService` or `PaymobPaymentService` — 1-file swap, no route changes needed.
+- **Admin backend endpoints not built**: `GET /admin/users` and `PATCH /admin/users/{id}` are not implemented. Admin Users tab shows "not yet implemented" gracefully. Build these in v2.
+- **GROQ_API_KEY in production**: If set, Groq delivers live LLM recommendations. If empty, falls back to `recommendations` DB table (12 seeded rows). Set in Render env vars to enable live RAG.
+- **CORS allow_origins in production**: Set `CORS_ORIGINS=https://safeearth.tech,https://www.safeearth.tech` in Render env vars (backend CORS reads this).
 
 ### Phase 1 Checklist
 ```
@@ -152,7 +159,7 @@ Phase 8  📋 PLANNED      30-Day Forecast + Time Series page + PWA + deployment
 [✅] app/(auth)/verify-email/page.tsx — Suspense-wrapped; auto-submits on ?token=… or accepts paste from backend stdout
 [✅] app/(protected)/dashboard/page.tsx — Suspense-wrapped tabs shell (Overview + real Predictions/Alerts/Subscriptions tabs + Admin placeholder); reads `?lat=&lon=` from /map click to pre-fill the form
 [✅] app/(protected)/dashboard/forecast/page.tsx — POST /predictions/forecast-30d → ForecastCalendar + ForecastLineChart + RiskSummaryBanner + always-visible disclaimer + expanded PredictionResultCard with forecastDisclaimer
-[✅] app/(protected)/admin/page.tsx — placeholder (Phase 8); middleware redirects non-admin to /dashboard
+[✅] app/(protected)/admin/page.tsx — placeholder (Phase 8); middleware redirects non-admin to /dashboard. Full 5-tab panel built in Phase 8 session.
 [✅] data/generated/risk_map.json — 8th precomputed file, 334 points (BACKEND APPROVED CHANGE — see Prompt 6)
 [✅] backend/routers/regions.py + schemas/regions.py + ml/emdat_lookup.py + scripts/generate_emdat_stats.py + tests/test_regions.py — GET /regions/risk-map endpoint with 1 new test (BACKEND APPROVED CHANGE)
 [✅] frontend devDependency: playwright@1.60.0 (used for verification runs)
@@ -217,6 +224,7 @@ Phase 8  📋 PLANNED      30-Day Forecast + Time Series page + PWA + deployment
 | 2026-05-26 | Phase 7 | **Phase 7 fully complete.** `pdf_service.py` (ReportLab — `generate_prediction_pdf` + `generate_forecast_pdf`). `GET /predictions/{id}/pdf` + `GET /predictions/forecast-30d/pdf` (Premium+, ownership-checked). 3 new PDF tests (subscriber 403, premium owner 200+pdf, wrong-user 403). Frontend: `CheckoutButton` already-Premium badge; `frontend/app/(public)/unsubscribe/page.tsx` (public, token-based, auto-calls DELETE /subscriptions/{token}). `endpoints.subscriptions.unsubscribe` added. 10 new unsubscribe + pricing.currentPlan string keys. **114/114 tests passing. 15/15 routes prerendered, build clean.** | — | Phase 8: 30-Day Forecast + Time Series + PWA + Vercel/Render deployment |
 | 2026-05-26 | Phase 7 | **pdf_service.py rebuilt with full spec compliance**: recommendations section (6 items, category-coloured table), `_FOOTER_TEXT` constant ("Generated by SafeEarth Intelligence. Data source: EM-DAT (1900-2021)."), duck-typed attribute access for ORM+Pydantic dual-type compatibility, PDF Info dictionary metadata for grep-able assertions. Unit test `test_generate_prediction_pdf_returns_valid_pdf_bytes` added (sync, no pkl/DB). Note: ReportLab ASCII85-encodes content streams — assertions target `/Title` and `/Subject` metadata (always plain text). **115/115 tests passing.** E2e smoke: 28/28 backend assertions green (checkout→webhook→premium DB→PDF download→expiry downgrade→unsubscribe DELETE all verified). | — | Phase 8: 30-Day Forecast page + Time Series page + PWA + Vercel/Render deployment |
 | 2026-05-27 | Phase 7 polish | **Dashboard tabs wired up.** Alerts / Subscriptions / Predictions History tabs replaced `ComingSoon` placeholders with real API-backed components. Added `frontend/types/alert.ts` + `frontend/types/subscription.ts` (were missing). Added `endpoints.subscriptions.list/create`, `endpoints.alerts.history`. Exposed `unsubscribe_token` in authenticated `SubscriptionListItem`. **115/115 tests passing**, build clean. | FastAPI wildcard route `/{token}` blocks `/by-id/{id}` at same router level — fixed by using token from list instead of a new endpoint. | Phase 8: 30-Day Forecast page + Time Series page + PWA + deployment |
+| 2026-05-29 | Phase 8 / v1 close | **RAG Render fix** (replaced ChromaDB+sentence-transformers with chapter-based Groq, `rag_loaded=true` in production). **Real admin page** (5-tab client component — Users/Model Stats/Payments/Dispatch/EmailLogs). **docker-compose.yml** (Phase 8 deliverable). **CLAUDE.md v1 close-out** (TL;DR, phase roadmap, current state, project structure, session note). 115/115 tests. 17/17 routes prerendered. | Real SMTP, Resend, real payment provider, admin CRUD endpoints — all v2 items. | v2 planning |
 
 *Append a row after every session — keep each row to 1–2 lines max. Move detailed notes to the Session Notes section below.*
 
@@ -1406,6 +1414,90 @@ The email unsubscribe link already sends the token to the user's inbox, so the u
 
 ---
 
+**Session 2026-05-29 — Phase 8 / v1 close-out**
+
+**Part 1 — RAG Render fix (chapter-based Groq)**
+
+Root cause of `rag_loaded=false` on Render: the original RAG pipeline used `sentence-transformers` (pulls PyTorch + CUDA packages, ~2GB) and ChromaDB PersistentClient (stored at `backend/rag/chroma_db/` which is gitignored and therefore never shipped). Both made RAG completely non-functional on Render's 512MB free tier.
+
+Fix: replaced the entire runtime RAG pipeline with a two-step approach:
+1. **Build time** — `backend/rag/extract_chapters.py` (PyMuPDF/`fitz`) reads the PDF and writes `backend/rag/chapters.json` (8 disaster types → chapter text, ~60KB). Added to `backend/scripts/render_build.sh`.
+2. **Runtime** — `backend/rag/recommender.py` rewrote to load `chapters.json` at startup (plain JSON, no embeddings), look up the relevant chapter by `disaster_type`, send it to Groq `llama-3.1-8b-instant` as context, and parse 6 recommendations. The `GroqUnavailableError` / DB-fallback semantics are unchanged.
+
+No PyTorch, no ChromaDB, no sentence-transformers at runtime. `pymupdf>=1.24.0` (already in requirements.txt) is the only new dependency needed at build time for chapter extraction.
+
+**Files created:**
+- `backend/rag/extract_chapters.py` — PyMuPDF-based PDF chapter extractor. `_EMDAT_TO_CHAPTER` maps 8 EM-DAT types to PDF chapter labels. `build_chapters_json()` extracts full chapter text. Standalone script: `py -3.12 backend/rag/extract_chapters.py` from project root.
+- `backend/rag/chapters.json` — 60KB, 8 keys (Flood, Storm, Earthquake, Wildfire, Volcanic activity, Landslide, Drought, Extreme temperature), committed to repo so Render can load it at startup without running the extractor.
+- `backend/rag/constants.py` — `PDF_PATH` constant referenced by both `extract_chapters.py` and older `ingest.py`.
+
+**Files modified:**
+- `backend/rag/recommender.py` — full rewrite. Removed: `_embedder`, `_chroma_client`, `_collection` singletons, `chromadb` imports, `sentence_transformers` imports. Added: `_chapters: dict[str, str] | None`, `CHAPTERS_PATH`. `load_rag()` loads `chapters.json` + initialises Groq client (degrade-not-fail if `GROQ_API_KEY` empty). `get_recommendations()` looks up chapter → truncates to 6000 chars → sends to Groq with system prompt + user prompt including chapter context → parses/validates 6 items → sorts. All `GroqUnavailableError` / DB-fallback semantics unchanged — `recommendation_service.py` required zero changes.
+- `backend/scripts/render_build.sh` — added `python backend/rag/extract_chapters.py` step between JSON generation and Alembic migration.
+- `backend/requirements.txt` — uncommented `pymupdf>=1.24.0` (was incorrectly marked as "ingest-only, not needed at runtime").
+
+**Deployment note:**
+Two Render deploys were required: (1) first deploy surfaced `ModuleNotFoundError: No module named 'fitz'` (pymupdf still commented out) — fixed and redeployed. (2) `GROQ_API_KEY` added to Render env vars triggers `rag_loaded=true` but requires a Manual Deploy to pick up the new env var AND re-run the build script that writes `chapters.json`. After full redeploy: `{"status":"ok","models_loaded":true,"rag_loaded":true}` confirmed.
+
+**CORS production note:**
+Set `CORS_ORIGINS=https://safeearth.tech,https://www.safeearth.tech` in Render environment variables. Backend `main.py` reads `settings.cors_origins` (comma-separated) for the FastAPI CORS middleware `allow_origins` list.
+
+---
+
+**Part 2 — Real admin page**
+
+**Files created:**
+- `frontend/types/admin.ts` — `AdminUser`, `AdminUsersResponse`, `DataStatus`, `DispatchResult`, `PatchUserRequest`. Imports `UserRole` from `./common` (re-exports it) to avoid duplicate export conflict with `types/index.ts`.
+
+**Files modified:**
+- `frontend/types/index.ts` — added `export * from "./admin"`.
+- `frontend/lib/endpoints.ts` — added `admin` endpoint group: `users(params)` → `GET /admin/users`, `patchUser(id, body)` → `PATCH /admin/users/{id}`, `dataStatus()` → `GET /admin/data-status`, `manualDispatch()` → `POST /alerts/dispatch {alert_type: "weekly_digest"}`. Added `admin` to `endpoints` export object. Added admin type imports.
+- `frontend/lib/strings.ts` — 43 new admin keys: `admin.tab.*` (5 tab labels), `admin.users.*` (14 keys: column headers, save states, pagination, not-impl messages), `admin.modelStats.*` (12 keys: metric labels, pipeline status), `admin.dispatch.*` (6 keys), `admin.comingSoon.*` (2 keys).
+- `frontend/app/(protected)/admin/page.tsx` — full rewrite. `"use client"`, role guard (redirect non-admin → /dashboard, unauthenticated → /login). 5-tab panel:
+  - **Users tab**: `GET /admin/users` → if 404/422, renders `NotImplemented` banner; on success, paginated table with email, `RoleBadge`, verified, premium_expires_at, joined, inline `<select>` role editor + Save button per row. `PATCH /admin/users/{id}` on Save; shows saved/error/notimpl inline state per row.
+  - **Model Stats tab**: Hardcoded v4.2 constants (MODEL_VERSION, Macro F1, Weighted F1, 16 features) + per-class F1 table with bar indicator for all 8 disaster types + live pipeline status from `GET /admin/data-status` (models_loaded + rag_loaded badges).
+  - **Payments tab**: `ComingSoonPanel` (no backend endpoint).
+  - **Manual Dispatch tab**: Button → `POST /alerts/dispatch` with apiClient (Admin JWT auto-attached); green success box with `queued` count; red error box on failure.
+  - **Email Logs tab**: `ComingSoonPanel` (no backend endpoint).
+
+**Build result: 17/17 routes prerendered, zero type errors.**
+- `/admin` route: `○ (Static)  3.32 kB  133 kB` (was 15-line placeholder)
+
+**Note on admin backend endpoints:**
+`GET /admin/users` and `PATCH /admin/users/{id}` are NOT yet implemented in `backend/routers/admin.py` (only `GET /admin/data-status` and `GET /admin/stub` exist). The admin Users tab handles 404 gracefully with a `NotImplemented` banner. These are v2 items.
+
+---
+
+**Part 3 — docker-compose.yml**
+
+- `docker-compose.yml` — created in project root (was a 4-line comment stub). Defines `postgres:15` service with `container_name: safeearth-db`, environment (user/password/db), port mapping `5432:5432`, named volume `safeearth-pgdata`, `restart: unless-stopped`. Replaces the manual `docker run` command that had been used since Phase 1.
+- The `docker-compose up -d postgres` command already appeared in the "How to Run" section — this file makes it actually work.
+
+---
+
+**Final test count: 115/115 passing** (unchanged — no new tests added this phase)
+
+| File | Tests |
+|---|---|
+| test_predictions.py | 20/20 |
+| test_recommendations.py | 12/12 |
+| test_premium.py | 12/12 |
+| test_regions.py | 11/11 |
+| test_auth.py | 11/11 |
+| scripts/tests/test_generation.py | 10/10 |
+| test_subscriptions.py | 10/10 |
+| test_email_service.py | 10/10 |
+| test_alerts.py | 10/10 |
+| test_smoke.py | 5/5 |
+| test_data_pipeline.py | 4/4 |
+| **TOTAL** | **115/115** |
+
+**npm run build: 17/17 routes prerendered, zero type errors, zero SSR errors.**
+
+New routes vs Phase 7 (15 routes): `/admin` fully rebuilt (was placeholder), plus any earlier Phase 8 routes from prior sessions (`/analytics/timeseries`, `/forecast`) bring total to 17.
+
+---
+
 ## What We Are Building
 
 SafeEarth Intelligence is a web application that:
@@ -1520,7 +1612,7 @@ safeearth/
 ├── .env                                     ← Never commit. Add to .gitignore immediately.
 ├── .env.example
 ├── .gitignore                               ← Must include: .env, __pycache__, *.pkl, *.pt, chroma_db/
-├── docker-compose.yml                       ⬜ Phase 8 — local dev only
+├── docker-compose.yml                       ✅ postgres:15 + named volume safeearth-pgdata (Phase 8)
 │
 ├── scripts/
 │   └── generate_emdat_stats.py              ✅ Run ONCE before first deploy
