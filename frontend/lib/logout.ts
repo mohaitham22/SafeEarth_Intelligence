@@ -14,5 +14,8 @@ export async function logoutAndRedirect(callbackUrl = "/"): Promise<void> {
   } catch {
     // ignored — local cookie clear must still happen
   }
-  await signOut({ callbackUrl })
+  // Use redirect:false then hard-navigate so Next.js router cache doesn't
+  // keep the stale session alive after the cookie is cleared.
+  await signOut({ redirect: false })
+  window.location.href = callbackUrl
 }
