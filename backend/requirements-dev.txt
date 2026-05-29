@@ -1,0 +1,6 @@
+# Development-only tools — not installed in production
+# Install: pip install -r backend/requirements-dev.txt
+
+ruff
+black
+pytest-cov

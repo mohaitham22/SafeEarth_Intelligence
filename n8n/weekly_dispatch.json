@@ -1,0 +1,83 @@
+{
+  "_comment": "CONFIGURATION REQUIRED before activating: set ALERT_DISPATCH_SECRET as an environment variable in n8n (Settings → Environment Variables, or N8N_CUSTOM_EXTENSIONS / process env). The value must match ALERT_DISPATCH_SECRET in the FastAPI backend .env. See CLAUDE.md 'How to Run' → n8n section for full setup instructions. Never commit the real secret value.",
+  "name": "SafeEarth — Weekly Alert Dispatch",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Every Monday 08:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [480, 240],
+      "notes": "Fires every Monday at 08:00 UTC. Cron: 0 8 * * 1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/alerts/dispatch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Dispatch-Secret",
+              "value": "={{ $env.ALERT_DISPATCH_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "{\"alert_type\": \"weekly_digest\"}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "POST /alerts/dispatch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 240],
+      "notes": "FastAPI authenticates via X-Dispatch-Secret header. Body: {alert_type: weekly_digest}. Response: {queued: N, message: '...'}. n8n triggers only — FastAPI does all fan-out and email sending."
+    }
+  ],
+  "connections": {
+    "Every Monday 08:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "POST /alerts/dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "safeearth-weekly-dispatch-v1",
+  "meta": {
+    "instanceId": "safeearth-local"
+  }
+}

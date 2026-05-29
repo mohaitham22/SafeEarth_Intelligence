@@ -1,0 +1,54 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# ── Test / Coverage ───────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── ML model files (downloaded at startup from HuggingFace) ──────────────────
+*.pkl
+*.pt
+*.h5
+
+# ── ChromaDB vector store (auto-created by ingest.py) ────────────────────────
+backend/rag/chroma_db/
+
+# ── Generated JSON (produced by scripts/generate_emdat_stats.py) ─────────────
+data/generated/*.json
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+frontend/.env*.local
+*.tsbuildinfo
+# next-pwa generated service worker files (regenerated at build time)
+frontend/public/sw.js
+frontend/public/workbox-*.js
+
+# ── Dev log files (written by email_service._dev_log) ────────────────────────
+*.email_dev.log
+.email_dev.log
+*.log
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

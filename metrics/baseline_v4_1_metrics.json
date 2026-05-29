@@ -1,0 +1,155 @@
+{
+  "model_name": "v4.1",
+  "primary_metric": "macro_f1",
+  "macro_f1": 0.6929,
+  "weighted_f1": 0.7519,
+  "accuracy": 0.7467,
+  "n_samples": 13070,
+  "n_classes": 8,
+  "class_names": [
+    "Drought",
+    "Earthquake",
+    "Extreme temperature",
+    "Flood",
+    "Landslide",
+    "Storm",
+    "Volcanic activity",
+    "Wildfire"
+  ],
+  "per_class_f1_sorted": [
+    {
+      "class": "Landslide",
+      "f1": 0.4697,
+      "support": 713
+    },
+    {
+      "class": "Drought",
+      "f1": 0.5333,
+      "support": 685
+    },
+    {
+      "class": "Wildfire",
+      "f1": 0.6176,
+      "support": 452
+    },
+    {
+      "class": "Volcanic activity",
+      "f1": 0.6582,
+      "support": 222
+    },
+    {
+      "class": "Extreme temperature",
+      "f1": 0.7462,
+      "support": 584
+    },
+    {
+      "class": "Storm",
+      "f1": 0.7655,
+      "support": 4005
+    },
+    {
+      "class": "Flood",
+      "f1": 0.7757,
+      "support": 5272
+    },
+    {
+      "class": "Earthquake",
+      "f1": 0.9767,
+      "support": 1137
+    }
+  ],
+  "classification_report": {
+    "Drought": {
+      "precision": 0.4467455621301775,
+      "recall": 0.6613138686131387,
+      "f1-score": 0.533254855797528,
+      "support": 685.0
+    },
+    "Earthquake": {
+      "precision": 0.977112676056338,
+      "recall": 0.9762532981530343,
+      "f1-score": 0.9766827980642323,
+      "support": 1137.0
+    },
+    "Extreme temperature": {
+      "precision": 0.8270833333333333,
+      "recall": 0.6797945205479452,
+      "f1-score": 0.7462406015037594,
+      "support": 584.0
+    },
+    "Flood": {
+      "precision": 0.7981540930979133,
+      "recall": 0.7545523520485584,
+      "f1-score": 0.7757410296411856,
+      "support": 5272.0
+    },
+    "Landslide": {
+      "precision": 0.4198895027624309,
+      "recall": 0.5329593267882188,
+      "f1-score": 0.46971569839307786,
+      "support": 713.0
+    },
+    "Storm": {
+      "precision": 0.7804878048780488,
+      "recall": 0.7510611735330837,
+      "f1-score": 0.765491792848963,
+      "support": 4005.0
+    },
+    "Volcanic activity": {
+      "precision": 0.6190476190476191,
+      "recall": 0.7027027027027027,
+      "f1-score": 0.6582278481012658,
+      "support": 222.0
+    },
+    "Wildfire": {
+      "precision": 0.6224719101123596,
+      "recall": 0.6128318584070797,
+      "f1-score": 0.6176142697881828,
+      "support": 452.0
+    },
+    "accuracy": 0.746671767406274,
+    "macro avg": {
+      "precision": 0.6863740626772776,
+      "recall": 0.7089336375992201,
+      "f1-score": 0.6928711117672743,
+      "support": 13070.0
+    },
+    "weighted avg": {
+      "precision": 0.7614310342019626,
+      "recall": 0.746671767406274,
+      "f1-score": 0.7518951256850777,
+      "support": 13070.0
+    }
+  },
+  "timestamp_utc": "2026-05-21T15:31:52.666763+00:00",
+  "model_version": "v4.1",
+  "ensemble_weights": {
+    "xgb": 0.6,
+    "lgb": 0.1,
+    "cat": 0.3
+  },
+  "feature_names": [
+    "latitude",
+    "longitude",
+    "abs_latitude",
+    "lon_sin",
+    "lon_cos",
+    "continent_enc",
+    "region_enc",
+    "country_enc",
+    "month_sin",
+    "month_cos",
+    "dis_mag_value",
+    "has_magnitude",
+    "historical_freq",
+    "log_hist_freq",
+    "decade",
+    "day_offset"
+  ],
+  "test_csv": "data/test/1970-2021_DISASTERS.xlsx - test data.csv",
+  "pkl_sizes_kb": {
+    "disaster_predictor.pkl": 25928,
+    "impact_regressor.pkl": 20537,
+    "shap_explainer.pkl": 119159
+  }
+}

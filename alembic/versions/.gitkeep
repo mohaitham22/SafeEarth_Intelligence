@@ -1,0 +1,3 @@
+# Migration files are generated here by: alembic revision --autogenerate -m "description"
+# Applied by: alembic upgrade head
+# First migration (Phase 1) will: create all 8 tables + pre-seed premium_plans rows.

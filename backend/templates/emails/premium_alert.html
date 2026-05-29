@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeEarth Disaster Alert</title>
+  <style>
+    body  { margin: 0; padding: 0; background-color: #f1f5f9; font-family: Arial, Helvetica, sans-serif; }
+    table { border-collapse: collapse; }
+
+    .wrapper    { max-width: 600px; margin: 40px auto; }
+    .card       { background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+    /* ── Header ── */
+    .header     { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); padding: 28px 40px; }
+    .header-tag { color: #fecaca; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 6px; }
+    .header-h1  { color: #ffffff; font-size: 22px; font-weight: 700; margin: 0; }
+    .header-sub { color: #fca5a5; font-size: 13px; margin: 4px 0 0; }
+
+    /* ── Severity badge ── */
+    .severity-row  { padding: 16px 40px; border-bottom: 1px solid #f1f5f9; }
+    .sev-low       { background: #dcfce7; color: #15803d; }
+    .sev-medium    { background: #fef9c3; color: #a16207; }
+    .sev-high      { background: #ffedd5; color: #c2410c; }
+    .sev-critical  { background: #fee2e2; color: #b91c1c; }
+    .sev-badge     { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+
+    /* ── Body ── */
+    .body       { padding: 32px 40px; color: #334155; }
+    .body h2    { font-size: 18px; font-weight: 600; color: #0f172a; margin: 0 0 16px; }
+    .body p     { font-size: 15px; line-height: 1.65; margin: 0 0 14px; }
+    .label      { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #94a3b8; margin: 0 0 2px; }
+
+    /* ── Stats grid ── */
+    .stats      { width: 100%; margin: 20px 0 24px; }
+    .stats td   { width: 33.33%; padding: 12px 8px; background: #f8fafc; border-radius: 6px; text-align: center; vertical-align: top; }
+    .stat-value { font-size: 20px; font-weight: 700; color: #0f172a; }
+    .stat-label { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+    /* ── Message box ── */
+    .msg-box    { background: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 0 6px 6px 0; padding: 14px 16px; margin: 0 0 24px; font-size: 14px; color: #78350f; line-height: 1.6; }
+
+    /* ── CTA ── */
+    .btn-wrap   { text-align: center; margin: 24px 0; }
+    .btn        { display: inline-block; background: #dc2626; color: #ffffff !important; text-decoration: none; padding: 13px 32px; border-radius: 6px; font-size: 14px; font-weight: 600; }
+
+    /* ── Footer ── */
+    .footer     { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 40px; text-align: center; font-size: 12px; color: #94a3b8; }
+    .footer a   { color: #64748b; text-decoration: underline; }
+    .unsub      { margin-top: 10px; font-size: 11px; }
+
+    @media (max-width: 600px) {
+      .header, .body, .severity-row, .footer { padding-left: 20px !important; padding-right: 20px !important; }
+      .stats td { display: block; width: 100% !important; margin-bottom: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+
+      <!-- Header -->
+      <div class="header">
+        <p class="header-tag">Premium Alert &mdash; SafeEarth Intelligence</p>
+        <h1 class="header-h1">{{ disaster_type }} Risk Detected</h1>
+        <p class="header-sub">{{ region_name }}</p>
+      </div>
+
+      <!-- Severity badge row -->
+      <div class="severity-row">
+        {% set sev_lower = severity_level | lower %}
+        <span class="sev-badge sev-{{ sev_lower }}">{{ severity_level }} Risk</span>
+      </div>
+
+      <!-- Body -->
+      <div class="body">
+        <h2>Hello{% if full_name %}, {{ full_name }}{% endif %},</h2>
+
+        <p>Our prediction system has detected a <strong>{{ severity_level }}</strong>-severity
+        <strong>{{ disaster_type }}</strong> risk event for your monitored region
+        <strong>{{ region_name }}</strong>.</p>
+
+        <!-- Stats grid -->
+        <table class="stats">
+          <tbody>
+            <tr>
+              <td>
+                <div class="stat-value">{{ risk_score | round(1) }}</div>
+                <div class="stat-label">Risk Score (0&ndash;100)</div>
+              </td>
+              <td>
+                <div class="stat-value">{{ severity_level }}</div>
+                <div class="stat-label">Severity Level</div>
+              </td>
+              <td>
+                <div class="stat-value">{{ disaster_type }}</div>
+                <div class="stat-label">Disaster Type</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Alert message -->
+        {% if message_body %}
+        <div class="msg-box">{{ message_body }}</div>
+        {% endif %}
+
+        <!-- CTA -->
+        <div class="btn-wrap">
+          <a class="btn" href="{{ frontend_url }}/dashboard">View Full Prediction</a>
+        </div>
+
+        <p class="label">Data source</p>
+        <p>Predictions are based on historical EM-DAT records (1900&ndash;2021) and our XGBoost
+        ensemble model (Macro F1 = 0.71). This is not live weather data.
+        Treat this as an early-warning signal, not a definitive forecast.</p>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <p>SafeEarth Intelligence &mdash; <a href="{{ frontend_url }}">safeearth.tech</a></p>
+        <p>You are receiving this because you have a Premium subscription with an active region alert.</p>
+        <p class="unsub">
+          <a href="{{ unsubscribe_url }}">One-click unsubscribe</a> &mdash; no login required.
+        </p>
+      </div>
+
+    </div><!-- /.card -->
+  </div><!-- /.wrapper -->
+</body>
+</html>

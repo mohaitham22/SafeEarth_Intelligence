@@ -1,0 +1,3 @@
+# Phase 8 — local dev only
+# Defines: postgres service for local development
+# Run with: docker-compose up -d postgres

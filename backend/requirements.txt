@@ -1,0 +1,63 @@
+# Phase 1 dependencies only — ML/RAG packages added in Phase 2/4
+# Install: pip install -r backend/requirements.txt
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Database
+sqlalchemy[asyncio]>=2.0
+asyncpg
+alembic
+
+# Validation
+pydantic>=2.0
+pydantic-settings
+
+# Config
+python-dotenv
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+python-multipart
+email-validator
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+
+# Phase 2 — Data pipeline (JSON generation + statistical computation)
+pandas>=2.0
+openpyxl
+numpy>=1.24
+
+# Phase 3 — ML inference
+xgboost
+scikit-learn
+shap
+joblib
+slowapi
+catboost
+# lightgbm and optuna are training-only — not needed at runtime
+
+# Phase 4 — RAG pipeline
+# chromadb and sentence-transformers are NOT installed on Render:
+# - sentence-transformers pulls in torch + CUDA packages (~2GB), causing OOM
+# - load_rag() fails fast with FileNotFoundError (no chroma_db on Render)
+# - app degrades to DB recommendations fallback — no RAG needed at runtime
+# Install separately for local RAG dev: pip install chromadb sentence-transformers
+groq>=0.11.0
+# pymupdf is ingest-only (run offline) — not needed at runtime
+
+# Phase 6 — Email
+jinja2>=3.1
+resend>=2.0
+
+# Phase 7 — PDF reports
+reportlab>=4.0
+
+# Phase 8 — HuggingFace model download at startup (Render deployment)
+huggingface_hub>=0.24.0

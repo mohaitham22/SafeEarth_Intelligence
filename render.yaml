@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: safeearth-api
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: bash backend/scripts/render_build.sh
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # set in Render dashboard — Neon.tech connection string
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: FRONTEND_URL
+        value: https://safeearth.tech
+      - key: CORS_ORIGINS
+        value: "https://safeearth.tech,https://www.safeearth.tech"
+      # Email
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: alerts@safeearth.tech
+      # ML models
+      - key: HUGGINGFACE_REPO_ID
+        sync: false
+      - key: HUGGINGFACE_TOKEN
+        sync: false
+      # RAG
+      - key: GROQ_API_KEY
+        sync: false
+      # Automation
+      - key: ALERT_DISPATCH_SECRET
+        generateValue: true
+      # Payment
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true

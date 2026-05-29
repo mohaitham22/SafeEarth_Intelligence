@@ -1,0 +1,3 @@
+# .pkl files are downloaded at startup from HUGGINGFACE_REPO_ID if missing.
+# Files: disaster_predictor.pkl, impact_regressor.pkl, shap_explainer.pkl
+# All .pkl files are gitignored — do not commit them.

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify your SafeEarth account</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f1f5f9; font-family: Arial, Helvetica, sans-serif; }
+    .wrapper { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; }
+    .header p  { color: #bbf7d0; margin: 4px 0 0; font-size: 13px; }
+    .body { padding: 40px; color: #334155; }
+    .body h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; color: #0f172a; }
+    .body p  { font-size: 15px; line-height: 1.6; margin: 0 0 16px; }
+    .btn-wrap { text-align: center; margin: 32px 0; }
+    .btn { display: inline-block; background: #16a34a; color: #ffffff !important; text-decoration: none;
+           padding: 14px 36px; border-radius: 6px; font-size: 15px; font-weight: 600; }
+    .token-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
+                 padding: 12px 16px; font-family: monospace; font-size: 13px; word-break: break-all;
+                 color: #475569; margin: 0 0 24px; }
+    .note { font-size: 13px; color: #64748b; }
+    .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 40px;
+              text-align: center; font-size: 12px; color: #94a3b8; }
+    .footer a { color: #16a34a; text-decoration: none; }
+    @media (max-width: 600px) {
+      .body, .footer { padding: 24px 20px !important; }
+      .header { padding: 24px 20px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>SafeEarth Intelligence</h1>
+      <p>AI-powered natural disaster prediction</p>
+    </div>
+
+    <div class="body">
+      <h2>Confirm your email address</h2>
+      <p>Thanks for signing up! Click the button below to verify your email and activate your free Subscriber account.</p>
+
+      <div class="btn-wrap">
+        <a class="btn" href="{{ verify_url }}">Verify Email Address</a>
+      </div>
+
+      <p>If the button does not work, copy and paste this link into your browser:</p>
+      <div class="token-box">{{ verify_url }}</div>
+
+      <p class="note">
+        This link expires in 24 hours. If you did not create a SafeEarth account, you can safely ignore this email.
+      </p>
+    </div>
+
+    <div class="footer">
+      <p>SafeEarth Intelligence &mdash; <a href="{{ frontend_url }}">safeearth.tech</a></p>
+      <p>You are receiving this because you registered at SafeEarth.</p>
+    </div>
+  </div>
+</body>
+</html>
