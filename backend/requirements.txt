@@ -50,7 +50,7 @@ catboost
 # - app degrades to DB recommendations fallback — no RAG needed at runtime
 # Install separately for local RAG dev: pip install chromadb sentence-transformers
 groq>=0.11.0
-# pymupdf is ingest-only (run offline) — not needed at runtime
+pymupdf>=1.24.0
 
 # Phase 6 — Email
 jinja2>=3.1
