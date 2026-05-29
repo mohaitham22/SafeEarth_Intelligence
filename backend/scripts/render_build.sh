@@ -23,3 +23,6 @@ alembic upgrade head
 # Ensures all 8 disaster types x 4 severity levels have 6 fallback rows
 # so the RAG DB fallback works for every prediction when Groq is unavailable.
 python scripts/seed_recommendations.py
+
+# Seed test accounts for all roles (idempotent — skips if already exists).
+python scripts/seed_test_users.py
