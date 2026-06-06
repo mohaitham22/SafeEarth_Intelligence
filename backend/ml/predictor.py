@@ -23,7 +23,8 @@ _classifier               = None   # XGBClassifier (tuned, Optuna v4.1)
 _lgb_classifier           = None   # LGBMClassifier (tuned, Optuna v4.1) — None for older bundles
 _cat_classifier           = None   # CatBoostClassifier (tuned, Optuna v4.1) — None for older bundles
 _regressors: dict | None  = None   # {"deaths", "injuries", "affected", "damage"}
-_shap_explainer           = None   # shap.TreeExplainer — cached, NEVER re-instantiated per request
+_shap_explainer           = None   # shap.TreeExplainer — loaded lazily on first prediction
+_shap_explainer_path: "Path | None" = None  # set at startup, loaded on demand
 _bundle: dict | None      = None   # full disaster_predictor.pkl dict (encoders + metadata)
 _avg_historical_freq: int = 100    # precomputed mean of region_freq_map at startup
 _xgb_weight: float        = 1.0   # soft ensemble weight for XGBoost
@@ -157,6 +158,7 @@ def load_models(
     """
     global _classifier, _lgb_classifier, _cat_classifier, _regressors, _shap_explainer
     global _bundle, _avg_historical_freq, _xgb_weight, _lgb_weight, _cat_weight
+    global _shap_explainer_path
 
     _ensure_models_downloaded(saved_models_dir, huggingface_repo_id, huggingface_token)
 
@@ -177,7 +179,13 @@ def load_models(
     _lgb_weight     = float(_bundle.get("lgb_weight", 0.0))
     _cat_weight     = float(_bundle.get("cat_weight", 0.0))
     _regressors     = joblib.load(saved_models_dir / "impact_regressor.pkl")
-    _shap_explainer = joblib.load(saved_models_dir / "shap_explainer.pkl")
+
+    # shap_explainer.pkl is ~109 MB on disk and expands to ~300 MB in memory.
+    # Loading it at startup on Render's 512 MB free tier leaves no headroom for
+    # DB connections, causing any real request (login, ads, etc.) to OOM-crash.
+    # Store the path and load lazily on first prediction instead.
+    _shap_explainer_path = saved_models_dir / "shap_explainer.pkl"
+    _shap_explainer      = None
 
     freq_map = _bundle.get("region_freq_map", {})
     _avg_historical_freq = int(sum(freq_map.values()) / len(freq_map)) if freq_map else 100
@@ -196,6 +204,18 @@ def load_models(
     print(f"  Regressors   : {list(_regressors.keys())}")
     print(f"  Features     : {n_features}")
     print(f"  Avg hist freq: {_avg_historical_freq}")
+
+
+# ── Private lazy loader ────────────────────────────────────────────────────────
+
+def _get_shap_explainer():
+    """Return the SHAP TreeExplainer, loading it from disk on first call."""
+    global _shap_explainer
+    if _shap_explainer is None:
+        if _shap_explainer_path is None or not _shap_explainer_path.exists():
+            return None
+        _shap_explainer = joblib.load(_shap_explainer_path)
+    return _shap_explainer
 
 
 # ── Public helpers ─────────────────────────────────────────────────────────────
@@ -329,9 +349,10 @@ def predict(
     )
     # estimated_damage_k is in thousands USD (matches training target units and DB column)
 
-    # ── SHAP — cached XGBoost explainer, NEVER re-instantiated per request ────
-    shap_values      = _shap_explainer.shap_values(features)
-    shap_explanation = _extract_top_shap(shap_values, class_idx)
+    # ── SHAP — loaded lazily on first prediction to save startup memory ─────────
+    explainer        = _get_shap_explainer()
+    shap_values      = explainer.shap_values(features) if explainer is not None else None
+    shap_explanation = _extract_top_shap(shap_values, class_idx) if shap_values is not None else []
 
     # ── Uninsured loss ─────────────────────────────────────────────────────────
     insurance_ratio = emdat_lookup.get_insurance_ratio(disaster_type)
