@@ -558,6 +558,23 @@ function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
   const metricLabel   = metricOptions.find((o) => o.value === metric)?.label ?? S("filter.metric.events")
   const recordedLabel = Sf("analytics.timeseries.recordedLabel", { metric: metricLabel })
 
+  // Dynamic insight: compare first vs last decade value for selected type + metric
+  const firstVal = metricValues[0] ?? 0
+  const lastVal  = metricValues[metricValues.length - 1] ?? 0
+  const firstDec = series[0]?.decade
+  const lastDec  = series[series.length - 1]?.decade
+  const tsInsightBody = (firstVal > 0 && lastVal > 0 && firstDec !== lastDec)
+    ? Sf("analytics.timeseries.insightBody", {
+        type:   pick,
+        metric: metricLabel,
+        n1:     formatInt(firstVal),
+        n2:     formatInt(lastVal),
+        d1:     firstDec,
+        d2:     lastDec,
+        dir:    slopeLabel.toLowerCase(),
+      })
+    : ""
+
   return (
     <ChartCard
       title={S("analytics.timeseries.title")}
@@ -639,6 +656,12 @@ function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
         <p className="mt-2 text-[11px] text-slate-400">
           {S("analytics.timeseries.greyNote")}
         </p>
+      )}
+      <p className="mt-1 text-[11px] text-slate-400 italic">
+        {S("analytics.timeseries.chartNote")}
+      </p>
+      {tsInsightBody && (
+        <Insight title={S("analytics.timeseries.insightTitle")} body={tsInsightBody} tone="blue" />
       )}
     </ChartCard>
   )
