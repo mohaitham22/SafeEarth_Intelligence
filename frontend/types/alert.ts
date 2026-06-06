@@ -23,3 +23,14 @@ export interface AlertHistoryResponse {
   page:      number
   page_size: number
 }
+
+// Result of POST /alerts/email-forecast (premium emails itself the forecast peak).
+export interface EmailForecastResponse {
+  sent:           boolean
+  message_id:     string | null
+  to:             string
+  peak_day:       number
+  disaster_type:  string | null
+  severity_level: SeverityLevel | string | null
+  region_name:    string | null
+}

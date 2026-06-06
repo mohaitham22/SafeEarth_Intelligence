@@ -1,8 +1,8 @@
 """
 Subscription business logic.
 
-Enforces per-role limits server-side:
-  - Subscriber (free): max 3 active subscriptions
+Enforces per-role limits server-side (see core.permissions._SUBSCRIPTION_LIMITS — the single source):
+  - Subscriber (free): max 8 active subscriptions
   - Premium:           max 10 active subscriptions
 
 Token generation for one-click unsubscribe (no login required):
@@ -18,16 +18,10 @@ from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.enums import AlertFrequency, UserRole
+from core.permissions import subscription_limit
+from models.enums import AlertFrequency
 from models.subscription import Subscription
 from models.user import User
-
-
-MAX_SUBSCRIPTIONS: dict[str, int] = {
-    UserRole.subscriber.value: 3,
-    UserRole.premium.value: 10,
-    UserRole.admin.value: 10,
-}
 
 
 async def create_subscription(
@@ -39,8 +33,7 @@ async def create_subscription(
     longitude: float,
     alert_frequency: AlertFrequency = AlertFrequency.weekly,
 ) -> Subscription:
-    role_val = user.role.value if hasattr(user.role, "value") else user.role
-    limit = MAX_SUBSCRIPTIONS.get(role_val, 3)
+    limit = subscription_limit(user.role)
 
     active_count_result = await db.execute(
         select(func.count()).where(
@@ -55,7 +48,7 @@ async def create_subscription(
             status_code=403,
             detail=(
                 f"Subscription limit reached ({limit} active). "
-                "Upgrade to Premium for up to 10 subscriptions."
+                "Upgrade to Premium for unlimited region subscriptions."
             ),
         )
 
@@ -85,6 +78,22 @@ async def list_subscriptions(
         .order_by(Subscription.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def get_by_token(
+    *,
+    db: AsyncSession,
+    token: str,
+) -> Subscription | None:
+    """Read-only lookup by unsubscribe token (no side effects).
+
+    Powers the public GET /subscriptions/lookup/{token} so the email unsubscribe
+    page can name the region and require an explicit confirm before deleting.
+    """
+    result = await db.execute(
+        select(Subscription).where(Subscription.unsubscribe_token == token)
+    )
+    return result.scalar_one_or_none()
 
 
 async def deactivate_by_token(

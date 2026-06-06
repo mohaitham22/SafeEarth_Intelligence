@@ -144,19 +144,52 @@ function TrendsTab({ data }: { data: TrendsData }) {
 
   const visibleTypes = filterType === "All" ? types : types.filter((t) => t === filterType)
 
-  // Live insight — always reads from full (unfiltered) data.
-  const floodArr = data["Flood"] as number[] | undefined
-  let insightBody = ""
-  if (Array.isArray(floodArr)) {
-    const idx80 = decades.indexOf(1980)
-    const idx00 = decades.indexOf(2000)
-    const n80   = floodArr[idx80] ?? 0
-    const n00   = floodArr[idx00] ?? 0
-    if (n80 > 0 && n00 > 0) {
-      insightBody = Sf("analytics.trends.insightBody", {
-        n80,
-        n00,
-        multiple: (n00 / n80).toFixed(1),
+  // Live insight — compares the two endpoints of the selected date range.
+  // "All" sums across every type; specific type uses that type's data.
+  // Skipped when the two endpoints are the same decade or either value is 0.
+  const decadeA = Number(filterFrom)
+  const decadeB = Number(filterTo)
+  const idxA    = decades.indexOf(decadeA)
+  const idxB    = decades.indexOf(decadeB)
+
+  let insightTitle = ""
+  let insightBody  = ""
+  if (idxA !== -1 && idxB !== -1 && idxA !== idxB) {
+    let n1: number
+    let n2: number
+    const isAll = filterType === "All"
+
+    if (isAll) {
+      // Sum all types at each endpoint.
+      n1 = types.reduce((s, t) => {
+        const arr = (data as TrendsData)[t]
+        return s + (Array.isArray(arr) && typeof arr[idxA] === "number" ? arr[idxA] : 0)
+      }, 0)
+      n2 = types.reduce((s, t) => {
+        const arr = (data as TrendsData)[t]
+        return s + (Array.isArray(arr) && typeof arr[idxB] === "number" ? arr[idxB] : 0)
+      }, 0)
+    } else {
+      const arr = (data as TrendsData)[filterType] as number[] | undefined
+      n1 = Array.isArray(arr) && typeof arr[idxA] === "number" ? arr[idxA] : 0
+      n2 = Array.isArray(arr) && typeof arr[idxB] === "number" ? arr[idxB] : 0
+    }
+
+    if (n1 > 0 && n2 > 0) {
+      const ratio = n2 / n1
+      const dir   = ratio >= 1.15 ? "up" : ratio <= 0.87 ? "down" : "flat"
+      const pfx   = isAll ? "analytics.trends.insightTitle.all" : "analytics.trends.insightTitle"
+      const bpfx  = isAll ? "analytics.trends.insightBody.all"  : "analytics.trends.insightBody"
+      insightTitle = isAll
+        ? S(`${pfx}.${dir}`)
+        : Sf(`${pfx}.${dir}`, { type: filterType })
+      insightBody = Sf(`${bpfx}.${dir}`, {
+        type:     filterType,
+        n1,
+        n2,
+        d1:       decadeA,
+        d2:       decadeB,
+        multiple: ratio.toFixed(1),
       })
     }
   }
@@ -200,7 +233,7 @@ function TrendsTab({ data }: { data: TrendsData }) {
         />
       </div>
       {insightBody && (
-        <Insight title={S("analytics.trends.insightTitle")} body={insightBody} tone="orange" />
+        <Insight title={insightTitle} body={insightBody} tone="orange" />
       )}
       <div className="h-[380px] mt-4">
         <ResponsiveContainer width="100%" height="100%">
@@ -229,12 +262,15 @@ function TrendsTab({ data }: { data: TrendsData }) {
 
 // ──────────────────────────────────────────────────────────────────────────
 // 2. Continents tab — BarChart
-//    Filter: Metric (Total Events | Median Deaths | Median Damage USD)
+//    Filters: Disaster Type (All | specific) + Metric (Events | Deaths | Damage).
+//    When a specific type is selected the metric dropdown is hidden — we only have
+//    per-type event counts in events_by_type, not per-type median deaths/damage.
 
 type ContMetric = "total_events" | "median_deaths" | "median_damage_000usd"
 
 function ContinentsTab({ data }: { data: ContinentStats }) {
-  const [metric, setMetric] = useState<ContMetric>("total_events")
+  const [metric,     setMetric]     = useState<ContMetric>("total_events")
+  const [filterType, setFilterType] = useState("All")
 
   const metricOptions = [
     { value: "total_events",         label: S("filter.metric.events") },
@@ -242,27 +278,47 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
     { value: "median_damage_000usd", label: S("filter.metric.damage") },
   ]
 
+  // Collect all disaster types that appear in at least one continent's events_by_type.
+  const allTypes = useMemo(() => {
+    const seen = new Set<string>()
+    for (const v of Object.values(data)) {
+      if (v.events_by_type) Object.keys(v.events_by_type).forEach((t) => seen.add(t))
+    }
+    return [...seen].sort()
+  }, [data])
+
+  const typeOptions = [
+    { value: "All", label: S("filter.all.types") },
+    ...allTypes.map((t) => ({ value: t, label: t })),
+  ]
+
+  const isTypeFiltered = filterType !== "All"
+
   const rows = useMemo(
-    () =>
-      Object.entries(data)
-        .map(([continent, v]) => ({
-          continent,
-          value:       (v[metric] ?? 0) as number,
-          top_disaster: v.top_disaster,
-        }))
-        .sort((a, b) => b.value - a.value),
-    [data, metric],
+    () => {
+      return Object.entries(data)
+        .map(([continent, v]) => {
+          const value = isTypeFiltered
+            ? ((v.events_by_type?.[filterType] ?? 0) as number)
+            : ((v[metric] ?? 0) as number)
+          return { continent, value, top_disaster: v.top_disaster }
+        })
+        .sort((a, b) => b.value - a.value)
+    },
+    [data, metric, filterType, isTypeFiltered],
   )
 
-  const yLabel =
-    metric === "total_events"
-      ? S("analytics.continents.yLabel")
-      : metric === "median_deaths"
-      ? S("filter.metric.deaths")
-      : S("filter.metric.damage")
+  const effectiveMetric = isTypeFiltered ? "total_events" : metric
+  const yLabel = isTypeFiltered
+    ? Sf("analytics.continents.typeEvents", { type: filterType })
+    : effectiveMetric === "total_events"
+    ? S("analytics.continents.yLabel")
+    : effectiveMetric === "median_deaths"
+    ? S("filter.metric.deaths")
+    : S("filter.metric.damage")
 
   const fmtValue = (v: number) =>
-    metric === "median_damage_000usd" ? formatUSDFromThousands(v) : formatInt(v)
+    (!isTypeFiltered && metric === "median_damage_000usd") ? formatUSDFromThousands(v) : formatInt(v)
 
   return (
     <ChartCard
@@ -273,10 +329,14 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
         <FilterBar
           filters={[
             {
+              id: "ct-type", label: S("filter.label.disasterType"),
+              options: typeOptions, value: filterType, onChange: setFilterType,
+            },
+            ...(isTypeFiltered ? [] : [{
               id: "ct-metric", label: S("filter.label.metric"),
               options: metricOptions, value: metric,
-              onChange: (v) => setMetric(v as ContMetric),
-            },
+              onChange: (v: string) => setMetric(v as ContMetric),
+            }]),
           ]}
         />
       </div>
@@ -287,7 +347,7 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
             <XAxis dataKey="continent" tick={{ fontSize: 11, fill: "#475569" }} />
             <YAxis
               tick={{ fontSize: 11, fill: "#475569" }}
-              tickFormatter={metric === "median_damage_000usd" ? formatUSDFromThousands : formatInt}
+              tickFormatter={(!isTypeFiltered && metric === "median_damage_000usd") ? formatUSDFromThousands : formatInt}
               label={{
                 value: yLabel,
                 angle: -90,
@@ -403,6 +463,9 @@ function InsuranceTab({ data }: { data: InsuranceRatios }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      <p className="mt-2 text-[11px] text-slate-400">
+        {S("analytics.insurance.caveat")}
+      </p>
     </ChartCard>
   )
 }
@@ -492,6 +555,9 @@ function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
   const fmtValue = (v: number) =>
     metric === "damage_000usd" ? formatUSDFromThousands(v) : formatInt(v)
 
+  const metricLabel   = metricOptions.find((o) => o.value === metric)?.label ?? S("filter.metric.events")
+  const recordedLabel = Sf("analytics.timeseries.recordedLabel", { metric: metricLabel })
+
   return (
     <ChartCard
       title={S("analytics.timeseries.title")}
@@ -540,12 +606,7 @@ function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
             />
             <Tooltip
               contentStyle={{ fontSize: 12 }}
-              formatter={(v: number, name: string) => [
-                fmtValue(v),
-                name === "trend"
-                  ? S("analytics.timeseries.trendLabel")
-                  : S("analytics.timeseries.eventsLabel"),
-              ]}
+              formatter={(v: number, name: string) => [fmtValue(v), name]}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {metric === "events" && (
@@ -553,7 +614,7 @@ function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
             )}
             <Bar
               dataKey="value"
-              name={S("analytics.timeseries.eventsLabel")}
+              name={recordedLabel}
               radius={[4, 4, 0, 0]}
             >
               {rows.map((r, i) => (

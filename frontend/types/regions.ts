@@ -15,6 +15,29 @@ export interface RegionStats {
   country_used:         string | null
 }
 
+// /regions/countries — continent→country picker with fixed centroids.
+// `name` is the exact EM-DAT country string (sent back on predictions so the
+// country-tier impact lookup hits); `label` is the cleaned display string.
+export interface CountryEntry {
+  name:     string
+  label:    string
+  iso:      string
+  lat:      number
+  lon:      number
+  n_events: number
+}
+export interface CountryDefault {
+  continent: string
+  name:      string
+  label:     string
+  lat:       number
+  lon:       number
+}
+export interface CountriesResponse {
+  default:    CountryDefault
+  continents: Record<string, CountryEntry[]>
+}
+
 // /regions/risk-map — list of historical events with valid in-range lat/lon
 // and a composite risk score in [0, 100]. Mirrors backend RiskMapPoint.
 export interface RiskMapPoint {
@@ -38,6 +61,7 @@ export interface ContinentEntry {
   top_disaster:         string
   median_deaths:        number | null
   median_damage_000usd: number | null
+  events_by_type?:      Record<string, number>  // per-type event counts (added Phase 5 polish)
 }
 export type ContinentStats = Record<string, ContinentEntry>
 
@@ -70,6 +94,7 @@ export interface TimeseriesDecadeEntry {
   damage_000usd:  number | null
 }
 export interface TimeSeriesData {
-  by_year:   Record<string, TimeseriesYearEntry[]>
-  by_decade: Record<string, TimeseriesDecadeEntry[]>
+  by_year:               Record<string, TimeseriesYearEntry[]>
+  by_decade:             Record<string, TimeseriesDecadeEntry[]>
+  by_continent_decade?:  Record<string, Record<string, TimeseriesDecadeEntry[]>>
 }

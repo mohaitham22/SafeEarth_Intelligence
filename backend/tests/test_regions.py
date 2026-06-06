@@ -145,3 +145,37 @@ async def test_risk_map_returns_valid_points(client: AsyncClient):
         assert -180 <= p["lon"] <= 180, f"bad lon: {p}"
         assert 0.0  <= p["risk_score"] <= 100.0, f"bad risk_score: {p}"
         assert p["disaster_type"] in valid_types, f"bad type: {p}"
+
+
+async def test_countries_returns_picker_table(client: AsyncClient):
+    """/regions/countries — 5 continents, a default, in-range centroids, and every
+    `name` matches an EM-DAT by_country key so the country-tier lookup will hit."""
+    from ml import emdat_lookup
+
+    resp = await client.get("/api/v1/regions/countries")
+    assert resp.status_code == 200
+    assert "max-age=3600" in resp.headers.get("cache-control", "")
+
+    data = resp.json()
+    assert set(data.keys()) == {"default", "continents"}
+
+    # Default must be a real, data-rich country.
+    default = data["default"]
+    assert default["name"] and default["label"] and default["continent"]
+    assert -90 <= default["lat"] <= 90 and -180 <= default["lon"] <= 180
+
+    continents = data["continents"]
+    assert len(continents) == 5, f"expected 5 continents, got {list(continents)}"
+
+    by_country = set(emdat_lookup.EMDAT_STATS.get("by_country", {}).keys())
+    for cont, entries in continents.items():
+        assert len(entries) > 0, f"{cont} has no countries"
+        for e in entries:
+            assert -90 <= e["lat"] <= 90,  f"bad lat: {e}"
+            assert -180 <= e["lon"] <= 180, f"bad lon: {e}"
+            assert e["n_events"] >= 0
+            # exact EM-DAT name → country-tier impact lookup can hit
+            assert e["name"] in by_country, f"name not an EM-DAT country: {e['name']!r}"
+        # sorted by n_events desc
+        counts = [e["n_events"] for e in entries]
+        assert counts == sorted(counts, reverse=True), f"{cont} not sorted by n_events"

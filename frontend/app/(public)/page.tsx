@@ -9,11 +9,21 @@ import Link from "next/link"
 import { S, Sf } from "@/lib/strings"
 import { endpoints } from "@/lib/endpoints"
 import { Nav } from "@/components/Nav"
-import { ForecastTeaser } from "@/components/ForecastTeaser"
+import { HeroCtas } from "@/components/HeroCtas"
+import { HomeForecastSection } from "@/components/HomeForecastSection"
 import { formatCompactInt } from "@/lib/format"
-import type { TrendsData, TimeSeriesData } from "@/types"
+import type { TrendsData, TimeSeriesData, Ad } from "@/types"
 
 export const revalidate = 3600
+
+// Active ads for the guest forecast slot. Server-fetched; never blocks the page.
+async function loadAds(): Promise<Ad[]> {
+  try {
+    return await endpoints.ads.list()
+  } catch {
+    return []
+  }
+}
 
 interface PublicSummary {
   // Total events: sum of continent total_events — covers the full 1900–2021 dataset range.
@@ -117,7 +127,7 @@ function fmtYear(from: number, to: number): string {
 }
 
 export default async function HomePage() {
-  const summary = await loadPublicSummary()
+  const [summary, ads] = await Promise.all([loadPublicSummary(), loadAds()])
 
   return (
     <>
@@ -136,20 +146,7 @@ export default async function HomePage() {
             <p className="mt-4 text-lg text-slate-600 max-w-2xl">
               {S("home.hero.subtitle")}
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/register"
-                className="inline-flex items-center justify-center rounded-md bg-slate-800 text-white text-sm font-medium px-5 py-2.5 hover:bg-slate-700"
-              >
-                {S("home.hero.ctaPrimary")}
-              </Link>
-              <Link
-                href="/map"
-                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 text-sm font-medium px-5 py-2.5 hover:bg-slate-50"
-              >
-                {S("home.hero.ctaSecondary")}
-              </Link>
-            </div>
+            <HeroCtas />
           </div>
         </section>
 
@@ -218,9 +215,9 @@ export default async function HomePage() {
           />
         </section>
 
-        {/* 30-Day Forecast teaser ------------------------------------- */}
+        {/* 30-Day Forecast — role-aware (guest/free ads / subscriber upgrade / premium real forecast) */}
         <section className="max-w-6xl mx-auto px-4 pb-12">
-          <ForecastTeaser />
+          <HomeForecastSection ads={ads} />
         </section>
 
         {/* Features grid ---------------------------------------------- */}

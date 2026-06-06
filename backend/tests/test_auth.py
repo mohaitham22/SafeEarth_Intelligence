@@ -10,6 +10,7 @@ LOGIN    = "/api/v1/auth/login"
 VERIFY   = "/api/v1/auth/verify-email"
 LOGOUT   = "/api/v1/auth/logout"
 REFRESH  = "/api/v1/auth/refresh"
+RESEND   = "/api/v1/auth/resend-verification"
 
 USER = {"email": "auth@test.com", "password": "TestPass123", "full_name": "Auth Test"}
 
@@ -99,6 +100,49 @@ async def test_verify_email_then_login_succeeds(client: AsyncClient, db_session:
 async def test_verify_invalid_token_returns_400(client: AsyncClient):
     resp = await client.post(VERIFY, json={"token": "not-a-real-token"})
     assert resp.status_code == 400
+
+
+# ── Resend verification ─────────────────────────────────────────────────────
+
+async def test_resend_verification_rotates_token_for_unverified(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _register(client)
+    old_token = await _get_token(db_session, USER["email"])
+
+    resp = await client.post(RESEND, json={"email": USER["email"]})
+    assert resp.status_code == 200
+    assert "message" in resp.json()
+
+    # A fresh token replaced the old one, and the new one still verifies + logs in.
+    new_token = await _get_token(db_session, USER["email"])
+    assert new_token is not None and new_token != old_token
+
+    await client.post(VERIFY, json={"token": new_token})
+    login = await client.post(LOGIN, json={"email": USER["email"], "password": USER["password"]})
+    assert login.status_code == 200
+
+
+async def test_resend_verification_unknown_email_returns_generic_200(client: AsyncClient):
+    # Never reveals whether the account exists.
+    resp = await client.post(RESEND, json={"email": "ghost@test.com"})
+    assert resp.status_code == 200
+    assert "message" in resp.json()
+
+
+async def test_resend_verification_already_verified_is_noop_200(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _register(client)
+    token = await _get_token(db_session, USER["email"])
+    await client.post(VERIFY, json={"token": token})
+
+    resp = await client.post(RESEND, json={"email": USER["email"]})
+    assert resp.status_code == 200
+
+    # Verified account keeps a cleared token — resend does not regenerate one.
+    result = await db_session.execute(select(User).where(User.email == USER["email"]))
+    assert result.scalar_one().verification_token is None
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────

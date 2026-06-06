@@ -1,7 +1,6 @@
 // Client Component for the standalone /analytics/timeseries page (Feature 9).
 // Receives precomputed TimeSeriesData from the Server Component and renders a
-// full-page ComposedChart with filters, slope badge, and flood insight callout.
-// Kept separate from AnalyticsPanels so the analytics page tabs are unchanged.
+// full-page ComposedChart with filters, slope badge, and insight callout.
 
 "use client"
 
@@ -38,10 +37,8 @@ const DISASTER_COLORS: Record<string, string> = {
   "Extreme temperature": "#0891b2",
 }
 
-// |slope| < 5 % of mean ⇒ Stable  (scales with the metric magnitude)
 const SLOPE_NOISE_FLOOR = 0.05
-// Decades with fewer than 10 events are greyed out on the events metric
-const GREY_THRESHOLD = 10
+const GREY_THRESHOLD    = 10
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -54,13 +51,11 @@ function linearRegression(ys: number[]): RegResult {
   if (n < 2) return { slope: 0, intercept: ys[0] ?? 0 }
   let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0
   for (let i = 0; i < n; i++) {
-    sumX  += i
-    sumY  += ys[i]
-    sumXY += i * ys[i]
-    sumXX += i * i
+    sumX  += i; sumY  += ys[i]
+    sumXY += i * ys[i]; sumXX += i * i
   }
-  const denom = n * sumXX - sumX * sumX
-  const slope     = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom
+  const denom    = n * sumXX - sumX * sumX
+  const slope    = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom
   const intercept = (sumY - slope * sumX) / n
   return { slope, intercept }
 }
@@ -70,21 +65,67 @@ function getMetricVal(r: TimeseriesDecadeEntry, m: TSMetric): number {
   return typeof v === "number" ? v : 0
 }
 
+// ── custom tooltip ─────────────────────────────────────────────────────────────
+// Shows both series with brief labels explaining what each one is. The `any`
+// types mirror Recharts' own untyped TooltipProps.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label, fmtValue }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow text-xs min-w-[180px]">
+      <p className="font-semibold text-slate-700 mb-1.5">{label}s</p>
+      {payload.map((p: { name: string; value: number; color: string }) => (
+        <div key={p.name} className="flex items-center gap-1.5 leading-5">
+          <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: p.color }} />
+          <span className="text-slate-500 truncate">{p.name}:</span>
+          <span className="ml-auto font-medium tabular-nums text-slate-900 pl-2">
+            {fmtValue(p.value)}
+          </span>
+        </div>
+      ))}
+      <p className="mt-2 text-[10px] text-slate-400 leading-snug">
+        {S("timeseries.tooltip.note")}
+      </p>
+    </div>
+  )
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
   const types = Object.keys(data.by_decade ?? {}).sort()
 
-  const [pick,   setPick]   = useState<string>(types.includes("Flood") ? "Flood" : types[0])
-  const [metric, setMetric] = useState<TSMetric>("events")
+  const [pick,            setPick]            = useState<string>(types.includes("Flood") ? "Flood" : types[0])
+  const [metric,          setMetric]          = useState<TSMetric>("events")
+  const [filterContinent, setFilterContinent] = useState("All")
 
-  const series       = data.by_decade[pick] ?? []
+  // Continent options derived from the JSON (optional field; graceful if absent).
+  const continentOptions = useMemo(() => {
+    const keys = Object.keys(data.by_continent_decade ?? {}).sort()
+    return [
+      { value: "All", label: S("filter.all.continents") },
+      ...keys.map((c) => ({ value: c, label: c })),
+    ]
+  }, [data.by_continent_decade])
+
+  const hasContinents = continentOptions.length > 1
+
+  // Series data — global or continent-filtered.
+  const series: TimeseriesDecadeEntry[] = useMemo(
+    () =>
+      filterContinent === "All"
+        ? (data.by_decade[pick] ?? [])
+        : (data.by_continent_decade?.[filterContinent]?.[pick] ?? []),
+    [data, pick, filterContinent],
+  )
+
   const metricValues = series.map((r) => getMetricVal(r, metric))
 
   const { slope, intercept } = useMemo(
     () => linearRegression(metricValues),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pick, metric, metricValues.join(",")],
+    [pick, metric, filterContinent, metricValues.join(",")],
   )
 
   const meanVal = metricValues.length
@@ -95,7 +136,6 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
     decade: r.decade,
     value:  getMetricVal(r, metric),
     trend:  Math.max(0, intercept + slope * i),
-    // grey-out only on the events metric — sparse decades have < 10 events
     isLow:  metric === "events" && (r.events ?? 0) < GREY_THRESHOLD,
   }))
 
@@ -108,7 +148,6 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
   } else {
     slopeLabel = S("analytics.timeseries.slope.decreasing")
   }
-  // Increasing = green, Decreasing = red, Stable = slate  (per Feature 9 spec)
   const slopeBadgeColor =
     slopeLabel === S("analytics.timeseries.slope.increasing")
       ? "bg-green-100 text-green-800 border-green-200"
@@ -116,29 +155,40 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
       ? "bg-red-100 text-red-800 border-red-200"
       : "bg-slate-100 text-slate-700 border-slate-200"
 
-  // ── flood insight callout (always visible, from live data) ──
-  const floodDecades = data.by_decade["Flood"] ?? []
-  const dec1980 = floodDecades.find((r) => r.decade === 1980)
-  const dec2000 = floodDecades.find((r) => r.decade === 2000)
-  const insightBody =
-    dec1980 && dec2000 && dec1980.events > 0 && dec2000.events > 0
-      ? Sf("timeseries.insight.body", {
-          n80:      dec1980.events,
-          n00:      dec2000.events,
-          multiple: (dec2000.events / dec1980.events).toFixed(1),
-        })
-      : ""
-
-  // ── filter options ──
-  const typeOptions = types.map((t) => ({ value: t, label: t }))
-
+  // ── insight callout — metric-aware, compares 1980 vs 2000 ──
+  // Uses the selected metric (not hardcoded events). Skips if either decade
+  // has no data (common for deaths/damage in sparse decades).
   const metricOptions = [
     { value: "events",        label: S("filter.metric.events") },
     { value: "deaths",        label: S("filter.metric.deaths") },
     { value: "affected",      label: S("filter.metric.affected") },
     { value: "damage_000usd", label: S("filter.metric.damage") },
   ]
+  const metricLabel = metricOptions.find((o) => o.value === metric)?.label ?? S("filter.metric.events")
 
+  const dec1980 = series.find((r) => r.decade === 1980)
+  const dec2000 = series.find((r) => r.decade === 2000)
+  const val1    = dec1980 ? getMetricVal(dec1980, metric) : 0
+  const val2    = dec2000 ? getMetricVal(dec2000, metric) : 0
+
+  let insightTitle = ""
+  let insightBody  = ""
+  if (val1 > 0 && val2 > 0) {
+    const ratio = val2 / val1
+    const dir   = ratio >= 1.15 ? "up" : ratio <= 0.87 ? "down" : "flat"
+    insightTitle = Sf(`timeseries.insight.title.${dir}`, { type: pick, metric: metricLabel })
+    insightBody  = Sf(`timeseries.insight.body.${dir}`, {
+      type:     pick,
+      metric:   metricLabel,
+      n1:       val1,
+      n2:       val2,
+      multiple: ratio.toFixed(1),
+    })
+  } else if (dec1980 && dec2000) {
+    insightBody = Sf("timeseries.insight.none", { type: pick, metric: metricLabel })
+  }
+
+  // ── chart helpers ──
   const yAxisLabel: Record<TSMetric, string> = {
     events:        S("analytics.timeseries.eventsAxis"),
     deaths:        S("filter.metric.deaths"),
@@ -149,15 +199,25 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
   const fmtValue = (v: number) =>
     metric === "damage_000usd" ? formatUSDFromThousands(v) : formatInt(v)
 
+  const recordedLabel = Sf("analytics.timeseries.recordedLabel", { metric: metricLabel })
+  const trendLabel    = S("analytics.timeseries.trendLabel.short")
+
+  // Continent context note shown in insight area when a specific continent is selected.
+  const contextNote = filterContinent !== "All"
+    ? ` (${filterContinent} only)`
+    : ""
+
   return (
     <div className="space-y-5">
-      {/* Flood insight callout — computed from live data, always visible */}
+      {/* Insight callout */}
       {insightBody && (
         <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
-          <p className="text-sm font-semibold text-slate-800">
-            {S("timeseries.insight.title")}
+          {insightTitle && (
+            <p className="text-sm font-semibold text-slate-800">{insightTitle}{contextNote}</p>
+          )}
+          <p className={insightTitle ? "mt-0.5 text-sm text-slate-700" : "text-sm text-slate-700"}>
+            {insightBody}
           </p>
-          <p className="mt-0.5 text-sm text-slate-700">{insightBody}</p>
         </div>
       )}
 
@@ -177,7 +237,7 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
               {
                 id:      "ts-page-type",
                 label:   S("filter.label.disasterType"),
-                options: typeOptions,
+                options: types.map((t) => ({ value: t, label: t })),
                 value:   pick,
                 onChange: setPick,
               },
@@ -188,6 +248,13 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
                 value:   metric,
                 onChange: (v) => setMetric(v as TSMetric),
               },
+              ...(hasContinents ? [{
+                id:      "ts-page-continent",
+                label:   S("filter.label.continent"),
+                options: continentOptions,
+                value:   filterContinent,
+                onChange: setFilterContinent,
+              }] : []),
             ]}
           />
 
@@ -204,7 +271,7 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
           </div>
         </div>
 
-        {/* Main chart — taller than the tab version for better readability */}
+        {/* Main chart */}
         <div className="mt-5 h-[540px]">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={rows} margin={{ top: 8, right: 24, bottom: 8, left: 16 }}>
@@ -222,35 +289,23 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
                   style:    { fontSize: 12, fill: "#64748b" },
                 }}
               />
-              <Tooltip
-                contentStyle={{ fontSize: 13 }}
-                formatter={(v: number, name: string) => [
-                  fmtValue(v),
-                  name === "trend"
-                    ? S("analytics.timeseries.trendLabel")
-                    : S("analytics.timeseries.eventsLabel"),
-                ]}
-              />
+              {/* Custom tooltip explains both series to non-expert readers */}
+              <Tooltip content={(props) => <ChartTooltip {...props} fmtValue={fmtValue} />} />
               <Legend wrapperStyle={{ fontSize: 13 }} />
 
-              {/* Reference line — marks the grey-out threshold */}
               {metric === "events" && (
                 <ReferenceLine y={GREY_THRESHOLD} stroke="#cbd5e1" strokeDasharray="4 4" />
               )}
 
               <Bar
                 dataKey="value"
-                name={S("analytics.timeseries.eventsLabel")}
+                name={recordedLabel}
                 radius={[4, 4, 0, 0]}
               >
                 {rows.map((r, i) => (
                   <Cell
                     key={i}
-                    fill={
-                      r.isLow
-                        ? "#cbd5e1"
-                        : (DISASTER_COLORS[pick] ?? "#0f172a")
-                    }
+                    fill={r.isLow ? "#cbd5e1" : (DISASTER_COLORS[pick] ?? "#0f172a")}
                     fillOpacity={r.isLow ? 0.5 : 1}
                   />
                 ))}
@@ -259,7 +314,7 @@ export function TimeSeriesPageContent({ data }: { data: TimeSeriesData }) {
               <Line
                 type="monotone"
                 dataKey="trend"
-                name={S("analytics.timeseries.trendLabel")}
+                name={trendLabel}
                 stroke="#0f172a"
                 strokeWidth={2}
                 dot={false}

@@ -41,8 +41,8 @@ async def run_prediction_for_request(
     continent:     str,
     disaster_type: str,
     season:        Union[str, int],
-    magnitude:     Optional[float],
-    user_id:       Optional[uuid.UUID],
+    magnitude:     Optional[float] = None,
+    user_id:       Optional[uuid.UUID] = None,
     db:            AsyncSession,
     day_offset:    int = 0,
     forecast_batch_id: Optional[uuid.UUID] = None,
@@ -177,6 +177,42 @@ async def run_forecast_30d(
     return results
 
 
+async def get_latest_forecast_days(
+    *,
+    db:      AsyncSession,
+    user_id: uuid.UUID,
+) -> list[Prediction]:
+    """Return the rows of the user's most recent 30-day forecast batch, ordered by
+    forecast_day_offset. Empty list if the user has no forecast yet.
+
+    Single source for the "most recent forecast batch" query — shared by the
+    forecast-PDF endpoint (routers/predictions.py) and the premium email-forecast
+    flow (alert_service.email_latest_forecast) so the two can't drift.
+    """
+    batch_q = await db.execute(
+        select(Prediction.forecast_batch_id)
+        .where(
+            Prediction.user_id == user_id,
+            Prediction.forecast_batch_id.is_not(None),
+        )
+        .order_by(Prediction.created_at.desc())
+        .limit(1)
+    )
+    batch_id = batch_q.scalar_one_or_none()
+    if batch_id is None:
+        return []
+
+    rows_q = await db.execute(
+        select(Prediction)
+        .where(
+            Prediction.user_id          == user_id,
+            Prediction.forecast_batch_id == batch_id,
+        )
+        .order_by(Prediction.forecast_day_offset.asc())
+    )
+    return list(rows_q.scalars().all())
+
+
 async def _safe_get_recommendations(
     *,
     disaster_type: str,
@@ -288,6 +324,7 @@ def run_classify(
     latitude:  float,
     longitude: float,
     continent: str,
+    country:   Optional[str] = None,
     year:      int,
     season:    Union[str, int] = 0,
     magnitude: Optional[float] = None,
@@ -303,6 +340,7 @@ def run_classify(
         season    = effective_season,
         continent = continent,
         year      = year,
+        country   = country,
     )
 
 

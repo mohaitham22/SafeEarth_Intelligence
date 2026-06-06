@@ -28,6 +28,8 @@ def _make_settings(**overrides):
     s.resend_api_key    = ""
     s.resend_from_email = "alerts@safeearth.tech"
     s.frontend_url      = "http://localhost:3000"
+    s.email_timeout_seconds = 15
+    s.email_max_retries     = 3
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
@@ -228,3 +230,79 @@ async def test_send_premium_alert_email_resend_dict_response():
         )
 
     assert result == "resend-msg-dict-002"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Verification SMTP — transient failure is retried, then succeeds
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_send_verification_email_retries_then_succeeds():
+    settings = _make_settings(
+        smtp_user="u@gmail.com", smtp_password="secret", email_max_retries=3
+    )
+    mock_smtp_cls = MagicMock()
+    good_instance = MagicMock()
+    # First context-enter raises (transient), second returns a working SMTP instance.
+    mock_smtp_cls.return_value.__enter__.side_effect = [
+        Exception("temporary failure"),
+        good_instance,
+    ]
+
+    with (
+        patch("services.email_service.get_settings", return_value=settings),
+        patch("services.email_service.smtplib.SMTP", mock_smtp_cls),
+        patch("services.email_service.asyncio.sleep", new=AsyncMock()),
+    ):
+        await email_service.send_verification_email("user@example.com", "tok-xyz")
+
+    assert mock_smtp_cls.call_count == 2          # retried once
+    good_instance.sendmail.assert_called_once()    # succeeded on the 2nd attempt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. Verification SMTP — all retries exhausted → dev-log fallback, no raise
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_send_verification_email_retry_exhausted_falls_back():
+    settings = _make_settings(
+        smtp_user="u@gmail.com", smtp_password="secret", email_max_retries=2
+    )
+    mock_smtp_cls = MagicMock()
+    mock_smtp_cls.return_value.__enter__.side_effect = Exception("down")
+
+    with (
+        patch("services.email_service.get_settings", return_value=settings),
+        patch("services.email_service.smtplib.SMTP", mock_smtp_cls),
+        patch("services.email_service.asyncio.sleep", new=AsyncMock()),
+        patch("services.email_service._dev_log") as mock_dev_log,
+    ):
+        # Must NOT raise even after exhausting retries.
+        await email_service.send_verification_email("user@example.com", "tok-xyz")
+
+    assert mock_smtp_cls.call_count == 2           # exactly email_max_retries attempts
+    mock_dev_log.assert_called_once()              # fell back to dev log
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. Resend alert — transient failure is retried, then succeeds
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_send_premium_alert_email_retries_then_succeeds():
+    settings = _make_settings(resend_api_key="re_live_key_abc", email_max_retries=3)
+    good_response = MagicMock()
+    good_response.id = "resend-msg-retry-003"
+
+    with (
+        patch("services.email_service.get_settings", return_value=settings),
+        patch(
+            "services.email_service.resend.Emails.send",
+            side_effect=[Exception("429 rate limited"), good_response],
+        ) as mock_send,
+        patch("services.email_service.asyncio.sleep", new=AsyncMock()),
+    ):
+        result = await email_service.send_premium_alert_email(
+            "prem@example.com", ALERT_CONTEXT
+        )
+
+    assert result == "resend-msg-retry-003"
+    assert mock_send.call_count == 2

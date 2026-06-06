@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from ml import emdat_lookup
-from schemas.regions import RegionStatsResponse, RiskMapPoint
+from schemas.regions import CountriesResponse, RegionStatsResponse, RiskMapPoint
 
 router = APIRouter(prefix="/regions", tags=["regions"])
 
@@ -59,6 +59,15 @@ async def get_risk_map(response: Response):
     runtime. Cached for 1 hour at the edge."""
     response.headers["Cache-Control"] = _CACHE_1H
     return emdat_lookup.get_risk_map_points()
+
+
+@router.get("/countries", response_model=CountriesResponse)
+async def get_countries(response: Response):
+    """Continent→country picker table with fixed centroids for the prediction
+    forms. `name` is the exact EM-DAT country string; lat/lon is a stable
+    centroid. Generated offline; cached for 1 hour at the edge."""
+    response.headers["Cache-Control"] = _CACHE_1H
+    return emdat_lookup.get_countries()
 
 
 @router.get("/stats", response_model=RegionStatsResponse)

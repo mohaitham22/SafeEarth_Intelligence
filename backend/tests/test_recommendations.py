@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import secrets
@@ -236,6 +236,17 @@ async def test_fallback_to_db_when_groq_unavailable(
     Uses (Earthquake, Critical) — a bucket guaranteed empty in the dev DB —
     so the assertion can't be contaminated by previously committed rows in
     other (disaster_type, severity) buckets."""
+    # Clear any pre-seeded rows for this bucket so the count assertion is
+    # deterministic regardless of the dev DB's full recommendation seed
+    # (this DELETE is rolled back with the test transaction).
+    await db_session.execute(
+        delete(Recommendation).where(
+            Recommendation.disaster_type == "Earthquake",
+            Recommendation.severity_level == SeverityLevel.critical,
+        )
+    )
+    await db_session.flush()
+
     await _seed_fallback_rows(
         db_session, disaster_type="Earthquake", severity=SeverityLevel.critical,
     )
@@ -266,10 +277,19 @@ async def test_fallback_to_db_when_groq_unavailable(
 
 
 async def test_fallback_returns_empty_when_db_has_no_rows(
-    client: AsyncClient, mock_rag_groq_down
+    client: AsyncClient, db_session: AsyncSession, mock_rag_groq_down
 ):
-    """No DB rows seeded for (Storm, Critical). Fallback returns []; endpoint
-    still returns 200 — never 500."""
+    """Fallback returns [] when the bucket has no DB rows; endpoint still 200.
+    Clears (Storm, Critical) first so the result doesn't depend on the dev DB's
+    recommendation seed (the DELETE is rolled back with the test transaction)."""
+    await db_session.execute(
+        delete(Recommendation).where(
+            Recommendation.disaster_type == "Storm",
+            Recommendation.severity_level == SeverityLevel.critical,
+        )
+    )
+    await db_session.flush()
+
     resp = await client.get(
         ENDPOINT,
         params={"disaster_type": "Storm", "severity": "Critical", "region_name": "Manila"},

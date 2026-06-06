@@ -1,5 +1,6 @@
 import secrets
 import uuid
+from typing import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from core.permissions import Feature, can, meets_role
 from core.security import decode_token
 from database import get_db
 from models.user import User
@@ -58,14 +60,17 @@ async def get_optional_user(
     return result.scalar_one_or_none()
 
 
-async def require_admin(
+async def require_subscriber(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Requires role='admin'. Raises 403 otherwise."""
-    if current_user.role.value != "admin":
+    """Requires role >= subscriber (subscriber/premium/admin). Raises 403 otherwise.
+
+    The single subscriber-or-above guard — routers import this instead of redefining it.
+    """
+    if not meets_role(current_user, "subscriber"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="Subscriber access required",
         )
     return current_user
 
@@ -73,13 +78,43 @@ async def require_admin(
 async def require_premium(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Requires role='premium' or 'admin'. Raises 403 otherwise."""
-    if current_user.role.value not in ("premium", "admin"):
+    """Requires role >= premium (premium/admin). Raises 403 otherwise."""
+    if not meets_role(current_user, "premium"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Premium subscription required",
         )
     return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requires role='admin'. Raises 403 otherwise."""
+    if not meets_role(current_user, "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user
+
+
+def require(feature: Feature) -> Callable[..., Awaitable[User]]:
+    """Dependency factory: gate an endpoint on a single Feature via the central `can()`.
+
+    Usage:  current_user: User = Depends(require(Feature.DOWNLOAD_PDF))
+    """
+    async def _dependency(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if not can(current_user, feature):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action requires a higher access level ({feature.value}).",
+            )
+        return current_user
+
+    return _dependency
 
 
 async def require_dispatch_auth(
@@ -110,7 +145,7 @@ async def require_dispatch_auth(
             user_id = uuid.UUID(payload["sub"])
             result = await db.execute(select(User).where(User.id == user_id))
             user = result.scalar_one_or_none()
-            if user and user.role.value == "admin":
+            if user and meets_role(user, "admin"):
                 return
         except HTTPException:
             pass

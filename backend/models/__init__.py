@@ -7,6 +7,7 @@ _backend_dir = str(Path(__file__).resolve().parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
+from .ad import Ad
 from .alert import Alert
 from .payment import Payment
 from .prediction import Prediction
@@ -17,6 +18,7 @@ from .subscription import Subscription
 from .user import User
 
 __all__ = [
+    "Ad",
     "User",
     "Subscription",
     "Prediction",

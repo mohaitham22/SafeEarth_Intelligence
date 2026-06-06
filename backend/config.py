@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_from_email: str = "alerts@safeearth.tech"
     frontend_url: str = "http://localhost:3000"
+    # Email send robustness — applied to both SMTP (verification) and Resend (alerts).
+    email_timeout_seconds: int = 15
+    email_max_retries: int = 3
 
     # ── Phase 2: Data pipeline ────────────────────────────────────────────────
     data_generated_dir: Path = _ROOT / "data" / "generated"

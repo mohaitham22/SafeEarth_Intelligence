@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { endpoints } from "@/lib/endpoints"
 import { apiClient } from "@/lib/api"
 import { S } from "@/lib/strings"
+import { meetsRole } from "@/lib/permissions"
 
 interface Props {
   planName:  "monthly" | "yearly"
@@ -19,8 +20,8 @@ export function CheckoutButton({ planName, label, highlight }: Props) {
   const [busy, setBusy]   = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Already on Premium — show a static badge instead of a CTA.
-  if (session?.user?.role === "premium") {
+  // Already Premium (or admin) — show a static badge instead of a CTA.
+  if (meetsRole(session?.user?.role, "premium")) {
     return (
       <div className="mt-8 w-full rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-center text-sm font-medium text-emerald-700">
         {S("pricing.currentPlan")}

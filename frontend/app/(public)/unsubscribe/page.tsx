@@ -11,28 +11,46 @@ import { useSearchParams } from "next/navigation"
 import { Nav } from "@/components/Nav"
 import { endpoints } from "@/lib/endpoints"
 import { apiClient } from "@/lib/api"
-import { S } from "@/lib/strings"
+import { S, Sf } from "@/lib/strings"
 
 // ── Inner component (reads URL params — must be inside <Suspense>) ──────────
+
+type Phase = "loading" | "confirm" | "already" | "success" | "error"
 
 function UnsubscribeInner() {
   const params = useSearchParams()
   const token  = params.get("token")
 
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
+  const [phase, setPhase]   = useState<Phase>("loading")
+  const [region, setRegion] = useState<string>("")
+  const [busy, setBusy]     = useState(false)
 
+  // Look up the subscription (read-only) so we can name the region and require an
+  // explicit confirm — we no longer delete silently on page load.
   useEffect(() => {
-    if (!token) {
-      setStatus("error")
-      return
-    }
-
+    if (!token) return
     endpoints.subscriptions
-      .unsubscribe(token, apiClient)
-      .then(() => setStatus("success"))
-      .catch(() => setStatus("error"))
+      .lookup(token, apiClient)
+      .then((d) => {
+        setRegion(d.region_name)
+        setPhase(d.is_active ? "confirm" : "already")
+      })
+      .catch(() => setPhase("error"))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
+
+  async function confirmUnsubscribe() {
+    if (!token) return
+    setBusy(true)
+    try {
+      await endpoints.subscriptions.unsubscribe(token, apiClient)
+      setPhase("success")
+    } catch {
+      setPhase("error")
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (!token) {
     return (
@@ -48,7 +66,7 @@ function UnsubscribeInner() {
     )
   }
 
-  if (status === "loading") {
+  if (phase === "loading") {
     return (
       <div className="max-w-md mx-auto mt-24 rounded-xl border border-slate-200 bg-white p-8 text-center">
         <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-600" />
@@ -57,7 +75,51 @@ function UnsubscribeInner() {
     )
   }
 
-  if (status === "success") {
+  if (phase === "confirm") {
+    return (
+      <div className="max-w-md mx-auto mt-24 rounded-xl border border-slate-200 bg-white p-8 text-center">
+        <h2 className="text-lg font-semibold text-slate-900">
+          {Sf("unsubscribe.confirm.title", { region })}
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">{S("unsubscribe.confirm.body")}</p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={confirmUnsubscribe}
+          className="mt-6 inline-block w-full rounded-md bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {busy ? S("unsubscribe.loading") : S("unsubscribe.confirm.action")}
+        </button>
+        <a
+          href="/"
+          className="mt-3 inline-block w-full rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          {S("unsubscribe.confirm.keep")}
+        </a>
+      </div>
+    )
+  }
+
+  if (phase === "already") {
+    return (
+      <div className="max-w-md mx-auto mt-24 rounded-xl border border-amber-200 bg-amber-50 p-8 text-center">
+        <h2 className="text-lg font-semibold text-amber-800">
+          {S("unsubscribe.already.title")}
+        </h2>
+        <p className="mt-2 text-sm text-amber-700">
+          {Sf("unsubscribe.already.body", { region })}
+        </p>
+        <a
+          href="/"
+          className="mt-6 inline-block w-full rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          {S("unsubscribe.home")}
+        </a>
+      </div>
+    )
+  }
+
+  if (phase === "success") {
     return (
       <div className="max-w-md mx-auto mt-24 rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">

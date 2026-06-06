@@ -77,20 +77,20 @@ async def test_create_subscription_invalid_lat_returns_422(
     assert resp.status_code == 422
 
 
-async def test_subscriber_limit_enforced_at_3(
+async def test_subscriber_limit_enforced_at_8(
     client: AsyncClient, db_session: AsyncSession
 ):
     tokens = await _register_and_login(client, db_session, "sub_limit@test.com")
     headers = _auth(tokens)
 
-    # Create 3 subscriptions in different regions
-    for i in range(3):
+    # Free subscriber limit is 8 active subscriptions
+    for i in range(8):
         payload = {**_BASE_PAYLOAD, "region_name": f"Region {i}", "latitude": float(i)}
         r = await client.post(SUBS, json=payload, headers=headers)
         assert r.status_code == 201, f"Expected 201, got {r.status_code} on sub {i}"
 
-    # Fourth must fail
-    payload = {**_BASE_PAYLOAD, "region_name": "Region 99", "latitude": 5.0}
+    # Ninth must fail
+    payload = {**_BASE_PAYLOAD, "region_name": "Region 99", "latitude": 9.0}
     r = await client.post(SUBS, json=payload, headers=headers)
     assert r.status_code == 403
     assert "limit" in r.json()["detail"].lower()
@@ -173,3 +173,83 @@ async def test_unsubscribe_idempotent_already_inactive(
     await client.delete(f"{SUBS}/{tok}")          # first unsubscribe
     resp = await client.delete(f"{SUBS}/{tok}")   # second — must not 409
     assert resp.status_code == 200
+
+
+async def test_delete_returns_region_name(
+    client: AsyncClient, db_session: AsyncSession
+):
+    tokens = await _register_and_login(client, db_session, "sub_delregion@test.com")
+    r = await client.post(SUBS, json=_BASE_PAYLOAD, headers=_auth(tokens))
+    tok = r.json()["unsubscribe_token"]
+
+    resp = await client.delete(f"{SUBS}/{tok}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "unsubscribed"
+    assert body["region_name"] == "Cairo"
+
+
+# ── GET /subscriptions/lookup/{token} — public, read-only ────────────────────
+
+async def test_lookup_by_token_returns_region_and_active(
+    client: AsyncClient, db_session: AsyncSession
+):
+    tokens = await _register_and_login(client, db_session, "sub_lookup@test.com")
+    r = await client.post(SUBS, json=_BASE_PAYLOAD, headers=_auth(tokens))
+    tok = r.json()["unsubscribe_token"]
+
+    # No auth header — endpoint is public
+    resp = await client.get(f"{SUBS}/lookup/{tok}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["region_name"] == "Cairo"
+    assert data["is_active"] is True
+
+    # After unsubscribe, lookup still resolves but reports inactive (no side effects).
+    await client.delete(f"{SUBS}/{tok}")
+    resp2 = await client.get(f"{SUBS}/lookup/{tok}")
+    assert resp2.status_code == 200
+    assert resp2.json()["is_active"] is False
+
+
+async def test_lookup_unknown_token_returns_404(client: AsyncClient):
+    resp = await client.get(f"{SUBS}/lookup/definitely-not-a-real-token")
+    assert resp.status_code == 404
+
+
+async def test_premium_limit_enforced_at_10(
+    client: AsyncClient, db_session: AsyncSession
+):
+    from sqlalchemy import select
+
+    from models.enums import UserRole
+    from models.user import User
+
+    # Register, elevate to premium, verify, log in.
+    await client.post(
+        REGISTER,
+        json={"email": "sub_prem_limit@test.com", "password": "TestPass123", "full_name": "P"},
+    )
+    user = (await db_session.execute(
+        select(User).where(User.email == "sub_prem_limit@test.com")
+    )).scalar_one()
+    user.role = UserRole.premium
+    db_session.add(user)
+    await db_session.flush()
+    await client.post(VERIFY, json={"token": user.verification_token})
+    login = await client.post(
+        LOGIN, json={"email": "sub_prem_limit@test.com", "password": "TestPass123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    # Premium limit is 10 active subscriptions.
+    for i in range(10):
+        payload = {**_BASE_PAYLOAD, "region_name": f"Region {i}", "latitude": float(i)}
+        r = await client.post(SUBS, json=payload, headers=headers)
+        assert r.status_code == 201, f"Expected 201, got {r.status_code} on sub {i}"
+
+    # Eleventh must fail.
+    payload = {**_BASE_PAYLOAD, "region_name": "Region 99", "latitude": 11.0}
+    r = await client.post(SUBS, json=payload, headers=headers)
+    assert r.status_code == 403
+    assert "limit" in r.json()["detail"].lower()

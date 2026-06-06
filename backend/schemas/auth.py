@@ -40,3 +40,11 @@ class TokenRefresh(BaseModel):
 
 class VerifyEmail(BaseModel):
     token: str
+
+
+class ResendVerification(BaseModel):
+    email: EmailStr
+
+
+class MessageResponse(BaseModel):
+    message: str

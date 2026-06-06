@@ -14,6 +14,7 @@ import { useSession } from "next-auth/react"
 import { S } from "@/lib/strings"
 import { RoleBadge } from "@/components/RoleBadge"
 import { logoutAndRedirect } from "@/lib/logout"
+import { isAdmin } from "@/lib/permissions"
 
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -54,7 +55,7 @@ export function Nav() {
           ) : isAuthed ? (
             <>
               <NavLink href="/dashboard">{S("nav.dashboard")}</NavLink>
-              {role === "admin" && (
+              {isAdmin(role) && (
                 <NavLink href="/admin">{S("nav.admin")}</NavLink>
               )}
               {role && (

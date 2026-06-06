@@ -17,6 +17,7 @@
 
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { isAdmin } from "@/lib/permissions"
 
 export default auth((req) => {
   const session  = req.auth
@@ -32,7 +33,7 @@ export default auth((req) => {
 
   // Admin-route UX gate: non-admins land on /dashboard instead of seeing a
   // backend 403. Backend Depends(require_admin) is the real boundary.
-  if (pathname.startsWith("/admin") && session.user?.role !== "admin") {
+  if (pathname.startsWith("/admin") && !isAdmin(session.user?.role)) {
     return NextResponse.redirect(new URL("/dashboard", req.url))
   }
 

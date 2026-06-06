@@ -7,9 +7,8 @@
 
 "use client"
 
-import { Suspense, useState, useEffect, type FormEvent } from "react"
+import { useState, useEffect, type FormEvent } from "react"
 import { useSession } from "next-auth/react"
-import { useSearchParams } from "next/navigation"
 import { logoutAndRedirect } from "@/lib/logout"
 
 import { S, Sf } from "@/lib/strings"
@@ -21,6 +20,11 @@ import { formatInt, formatUSDFromThousands, formatCompactInt } from "@/lib/forma
 import { Nav } from "@/components/Nav"
 import { PredictionResultCard } from "@/components/PredictionResultCard"
 import { SeverityBadge } from "@/components/SeverityBadge"
+import { CountrySelect, type LocationValue } from "@/components/CountrySelect"
+import { MonthSelect } from "@/components/MonthSelect"
+import { AlertsForecastPanel } from "@/components/AlertsForecastPanel"
+import { toCsv, downloadCsv } from "@/lib/csv"
+import { subscriptionLimit, meetsRole } from "@/lib/permissions"
 
 import type {
   AlertHistoryResponse,
@@ -82,11 +86,7 @@ export default function DashboardPage() {
         <Tabs value={tab} onChange={setTab} showAdmin={role === "admin"} />
 
         <div className="mt-6">
-          {/* useSearchParams() inside PredictionForm needs a Suspense parent
-              for Next.js 14 static prerender to succeed. */}
-          {tab === "overview"      && (
-            <Suspense fallback={null}><OverviewTab /></Suspense>
-          )}
+          {tab === "overview"      && <OverviewTab />}
           {tab === "predictions"   && <PredictionsHistoryTab />}
           {tab === "alerts"        && <AlertsTab />}
           {tab === "subscriptions" && <SubscriptionsTab />}
@@ -202,30 +202,47 @@ function MetricBox({ label, value }: { label: string; value: string }) {
   )
 }
 
+// Shared "Download CSV" affordance (req 5). Buttons live in the owning card so
+// the reusable PredictionResultCard stays presentation-only.
+function DownloadCsvButton({ onClick, label }: { onClick: () => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+    >
+      <svg viewBox="0 0 20 20" className="w-3.5 h-3.5" fill="currentColor" aria-hidden="true">
+        <path d="M10 3a1 1 0 0 1 1 1v6.586l1.293-1.293a1 1 0 1 1 1.414 1.414l-3 3a1 1 0 0 1-1.414 0l-3-3a1 1 0 1 1 1.414-1.414L9 10.586V4a1 1 0 0 1 1-1Z" />
+        <path d="M4 14a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z" />
+      </svg>
+      {label ?? S("download.csv")}
+    </button>
+  )
+}
+
 // ── Card 1 — Disaster Type Predictor ─────────────────────────────────────
 
 function ClassifyCard() {
-  const [lat,       setLat]       = useState("30.05")
-  const [lon,       setLon]       = useState("31.24")
-  const [continent, setContinent] = useState("Africa")
+  const [loc,       setLoc]       = useState<LocationValue | null>(null)
   const [year,      setYear]      = useState(String(new Date().getFullYear()))
-  const [season,    setSeason]    = useState("")
+  const [season,    setSeason]    = useState(0)   // 0 = current month
   const [result,    setResult]    = useState<ClassifyResult | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!loc) return
     setError(null)
     setLoading(true)
     try {
-      const s = season.trim()
       const r = await endpoints.predictions.classify({
-        latitude:  parseFloat(lat),
-        longitude: parseFloat(lon),
-        continent: continent.trim(),
+        latitude:  loc.lat,
+        longitude: loc.lon,
+        continent: loc.continent,
+        country:   loc.country,
         year:      parseInt(year, 10),
-        season:    s ? (isNaN(Number(s)) ? s : parseInt(s, 10)) : 0,
+        season:    season,
       })
       setResult(r)
     } catch (e: unknown) {
@@ -234,6 +251,18 @@ function ClassifyCard() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function downloadResult() {
+    if (!result || !loc) return
+    const csv = toCsv(
+      ["rank", "disaster_type", "probability_pct", "country", "latitude", "longitude", "year", "model_version"],
+      result.ranked.map((it, i) => [
+        i + 1, it.disaster_type, (it.probability * 100).toFixed(1),
+        loc.label, loc.lat, loc.lon, year, result.model_version,
+      ]),
+    )
+    downloadCsv(`disaster-type_${loc.country}.csv`, csv)
   }
 
   return (
@@ -251,14 +280,10 @@ function ClassifyCard() {
                 {error}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <Field id="c1-lat" label={S("form.lat.label")} value={lat} onChange={setLat} placeholder={S("form.lat.placeholder")} type="number" step="0.0001" />
-              <Field id="c1-lon" label={S("form.lon.label")} value={lon} onChange={setLon} placeholder={S("form.lon.placeholder")} type="number" step="0.0001" />
-            </div>
-            <Field id="c1-continent" label={S("card1.continent.label")} value={continent} onChange={setContinent} placeholder={S("card1.continent.placeholder")} />
+            <CountrySelect value={loc} onChange={setLoc} idPrefix="c1" />
             <Field id="c1-year" label={S("card1.year.label")} value={year} onChange={setYear} placeholder={S("card1.year.placeholder")} type="number" />
-            <Field id="c1-season" label={S("card1.season.label")} value={season} onChange={setSeason} placeholder={S("card1.season.placeholder")} />
-            <button type="submit" disabled={loading} className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60">
+            <MonthSelect value={season} onChange={setSeason} id="c1-month" />
+            <button type="submit" disabled={loading || !loc} className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60">
               {loading ? S("card1.busy") : S("card1.submit")}
             </button>
           </form>
@@ -266,11 +291,14 @@ function ClassifyCard() {
         <div className="lg:col-span-3">
           {result ? (
             <div className="rounded-xl border border-slate-200 bg-white p-5 h-full">
-              <p className="text-sm font-medium text-slate-700">
-                {S("card1.result.top")}:{" "}
-                <span className="font-bold text-slate-900">{result.top_type}</span>{" "}
-                <span className="text-slate-500">({(result.top_probability * 100).toFixed(1)}%)</span>
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium text-slate-700">
+                  {S("card1.result.top")}:{" "}
+                  <span className="font-bold text-slate-900">{result.top_type}</span>{" "}
+                  <span className="text-slate-500">({(result.top_probability * 100).toFixed(1)}%)</span>
+                </p>
+                <DownloadCsvButton onClick={downloadResult} />
+              </div>
               <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">
                 {S("card1.result.ranked")}
               </p>
@@ -306,29 +334,26 @@ function ClassifyCard() {
 // ── Card 2 — Disaster Impact Prediction ──────────────────────────────────
 
 function ImpactCard() {
-  const [lat,       setLat]       = useState("30.05")
-  const [lon,       setLon]       = useState("31.24")
-  const [continent, setContinent] = useState("Africa")
+  const [loc,       setLoc]       = useState<LocationValue | null>(null)
   const [year,      setYear]      = useState(String(new Date().getFullYear()))
-  const [season,    setSeason]    = useState("")
-  const [country,   setCountry]   = useState("")
+  const [season,    setSeason]    = useState(0)   // 0 = current month
   const [result,    setResult]    = useState<ImpactResult | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!loc) return
     setError(null)
     setLoading(true)
     try {
-      const s = season.trim()
       const r = await endpoints.predictions.impact({
-        latitude:  parseFloat(lat),
-        longitude: parseFloat(lon),
-        continent: continent.trim(),
+        latitude:  loc.lat,
+        longitude: loc.lon,
+        continent: loc.continent,
         year:      parseInt(year, 10),
-        season:    s ? (isNaN(Number(s)) ? s : parseInt(s, 10)) : 0,
-        country:   country.trim() || undefined,
+        season:    season,
+        country:   loc.country,
       })
       setResult(r)
     } catch (e: unknown) {
@@ -337,6 +362,23 @@ function ImpactCard() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function downloadResult() {
+    if (!result || !loc) return
+    const csv = toCsv(
+      ["country", "latitude", "longitude", "year", "disaster_type", "probability_pct",
+       "expected_events", "estimated_deaths", "estimated_injuries", "estimated_affected",
+       "estimated_damage_000usd", "uninsured_loss_000usd", "data_source", "model_version"],
+      [[
+        loc.label, loc.lat, loc.lon, year, result.predicted_disaster_type,
+        (result.probability * 100).toFixed(1), result.expected_events,
+        result.estimated_deaths, result.estimated_injuries, result.estimated_affected,
+        result.estimated_damage_usd, result.uninsured_loss_usd,
+        result.data_source, result.model_version,
+      ]],
+    )
+    downloadCsv(`impact_${loc.country}.csv`, csv)
   }
 
   return (
@@ -354,17 +396,12 @@ function ImpactCard() {
                 {error}
               </div>
             )}
+            <CountrySelect value={loc} onChange={setLoc} idPrefix="c2" />
             <div className="grid grid-cols-2 gap-3">
-              <Field id="c2-lat" label={S("form.lat.label")} value={lat} onChange={setLat} placeholder={S("form.lat.placeholder")} type="number" step="0.0001" />
-              <Field id="c2-lon" label={S("form.lon.label")} value={lon} onChange={setLon} placeholder={S("form.lon.placeholder")} type="number" step="0.0001" />
+              <Field id="c2-year" label={S("card2.year.label")} value={year} onChange={setYear} placeholder={S("card2.year.placeholder")} type="number" />
+              <MonthSelect value={season} onChange={setSeason} id="c2-month" />
             </div>
-            <Field id="c2-continent" label={S("card2.continent.label")} value={continent} onChange={setContinent} placeholder={S("card2.continent.placeholder")} />
-            <div className="grid grid-cols-2 gap-3">
-              <Field id="c2-year"    label={S("card2.year.label")}    value={year}    onChange={setYear}    placeholder={S("card2.year.placeholder")} type="number" />
-              <Field id="c2-country" label={S("card2.country.label")} value={country} onChange={setCountry} placeholder={S("card2.country.placeholder")} />
-            </div>
-            <Field id="c2-season" label={S("card2.season.label")} value={season} onChange={setSeason} placeholder={S("card2.season.placeholder")} />
-            <button type="submit" disabled={loading} className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60">
+            <button type="submit" disabled={loading || !loc} className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60">
               {loading ? S("card2.busy") : S("card2.submit")}
             </button>
           </form>
@@ -372,11 +409,14 @@ function ImpactCard() {
         <div className="lg:col-span-3">
           {result ? (
             <div className="rounded-xl border border-slate-200 bg-white p-5 h-full">
-              <p className="text-sm font-medium text-slate-700">
-                {S("card2.result.type")}:{" "}
-                <span className="font-bold text-slate-900">{result.predicted_disaster_type}</span>{" "}
-                <span className="text-slate-500">({(result.probability * 100).toFixed(1)}%)</span>
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium text-slate-700">
+                  {S("card2.result.type")}:{" "}
+                  <span className="font-bold text-slate-900">{result.predicted_disaster_type}</span>{" "}
+                  <span className="text-slate-500">({(result.probability * 100).toFixed(1)}%)</span>
+                </p>
+                <DownloadCsvButton onClick={downloadResult} />
+              </div>
               <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <MetricBox label={S("card2.result.events")}   value={formatInt(result.expected_events)} />
                 <MetricBox label={S("card2.result.deaths")}   value={formatInt(result.estimated_deaths)} />
@@ -399,6 +439,29 @@ function ImpactCard() {
 }
 
 // ── Card 3 — Risk Level Classifier (full prediction + SHAP + recommendations)
+
+function downloadRiskCsv(r: PredictionResult) {
+  const shap = r.shap_explanation
+  const headers = [
+    "disaster_type", "severity_level", "probability_pct", "risk_score",
+    "estimated_deaths", "estimated_injuries", "estimated_affected",
+    "estimated_damage_000usd", "uninsured_loss_000usd",
+    "data_source", "country_used", "n_events",
+    "shap_1", "shap_1_pct", "shap_2", "shap_2_pct", "shap_3", "shap_3_pct",
+    "model_version", "created_at",
+  ]
+  const row = [
+    r.disaster_type, r.severity_level, (r.probability_score * 100).toFixed(1), r.risk_score,
+    r.estimated_deaths, r.estimated_injuries, r.estimated_affected,
+    r.estimated_damage_usd, r.uninsured_loss_usd,
+    r.data_source, r.country_used ?? "", r.n_events,
+    shap[0]?.feature ?? "", shap[0]?.contribution_pct ?? "",
+    shap[1]?.feature ?? "", shap[1]?.contribution_pct ?? "",
+    shap[2]?.feature ?? "", shap[2]?.contribution_pct ?? "",
+    r.model_version, r.created_at,
+  ]
+  downloadCsv(`risk_${r.disaster_type}.csv`, toCsv(headers, [row]))
+}
 
 function RiskCard() {
   const [result, setResult]         = useState<PredictionResult | null>(null)
@@ -440,6 +503,9 @@ function RiskCard() {
             }}
             error={error}
           />
+          <p className="mt-3 text-[11px] text-slate-400 leading-snug">
+            {S("card3.reconcileNote")}
+          </p>
         </div>
         <div className="lg:col-span-3">
           {loading && !result && (
@@ -448,10 +514,15 @@ function RiskCard() {
             </div>
           )}
           {result && (
-            <PredictionResultCard
-              result={result}
-              timeseriesData={tsData ?? undefined}
-            />
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <DownloadCsvButton onClick={() => downloadRiskCsv(result)} />
+              </div>
+              <PredictionResultCard
+                result={result}
+                timeseriesData={tsData ?? undefined}
+              />
+            </div>
           )}
           {!result && !loading && (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
@@ -472,52 +543,26 @@ function PredictionForm(props: {
   error: string | null
   onSubmit: (body: PredictRequest) => Promise<void>
 }) {
-  // Pre-fill from /map?lat=...&lon=... when the user clicked a heatmap point.
-  // Falls back to the Cairo defaults if no params are present.
-  const sp = useSearchParams()
-  const latParam = sp.get("lat")
-  const lonParam = sp.get("lon")
-  const [lat,        setLat]        = useState(latParam ?? "30.05")
-  const [lon,        setLon]        = useState(lonParam ?? "31.24")
-  const [country,    setCountry]    = useState("Egypt")
-  const [continent,  setContinent]  = useState("Africa")
+  const [loc,        setLoc]        = useState<LocationValue | null>(null)
   const [disasterType, setDisasterType] = useState<DisasterType>("Flood")
-  const [season,    setSeason]    = useState("")
-  const [magnitude, setMagnitude] = useState("")
+  const [season,    setSeason]    = useState(0)   // 0 = current month
   const [localError, setLocalError] = useState<string | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setLocalError(null)
 
-    const latNum = parseFloat(lat)
-    const lonNum = parseFloat(lon)
-    if (Number.isNaN(latNum) || latNum < -90 || latNum > 90) {
-      setLocalError(S("form.lat.error")); return
-    }
-    if (Number.isNaN(lonNum) || lonNum < -180 || lonNum > 180) {
-      setLocalError(S("form.lon.error")); return
-    }
-    if (!country.trim() || !continent.trim()) {
-      setLocalError(S("form.required")); return
-    }
-
-    // season: empty → 0 (current month), digits → int, else string (name)
-    let seasonField: PredictRequest["season"] = 0
-    const s = season.trim()
-    if (s) {
-      if (/^\d+$/.test(s)) seasonField = parseInt(s, 10)
-      else                 seasonField = s.toLowerCase()
+    if (!loc) {
+      setLocalError(S("location.loading")); return
     }
 
     const body: PredictRequest = {
-      latitude:      latNum,
-      longitude:     lonNum,
-      country:       country.trim(),
-      continent:     continent.trim(),
+      latitude:      loc.lat,
+      longitude:     loc.lon,
+      country:       loc.country,
+      continent:     loc.continent,
       disaster_type: disasterType,
-      season:        seasonField,
-      magnitude:     magnitude.trim() ? parseFloat(magnitude) : null,
+      season:        season,
     }
     await props.onSubmit(body)
   }
@@ -535,43 +580,7 @@ function PredictionForm(props: {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          id="lat"
-          label={S("form.lat.label")}
-          value={lat}
-          onChange={setLat}
-          placeholder={S("form.lat.placeholder")}
-          type="number"
-          step="0.0001"
-        />
-        <Field
-          id="lon"
-          label={S("form.lon.label")}
-          value={lon}
-          onChange={setLon}
-          placeholder={S("form.lon.placeholder")}
-          type="number"
-          step="0.0001"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          id="country"
-          label={S("form.country.label")}
-          value={country}
-          onChange={setCountry}
-          placeholder={S("form.country.placeholder")}
-        />
-        <Field
-          id="continent"
-          label={S("form.continent.label")}
-          value={continent}
-          onChange={setContinent}
-          placeholder={S("form.continent.placeholder")}
-        />
-      </div>
+      <CountrySelect value={loc} onChange={setLoc} idPrefix="rc" />
 
       <div>
         <label htmlFor="disasterType" className="block text-xs font-medium text-slate-700">
@@ -589,27 +598,10 @@ function PredictionForm(props: {
         </select>
       </div>
 
-      <Field
-        id="season"
-        label={S("form.season.label")}
-        value={season}
-        onChange={setSeason}
-        placeholder={S("form.season.placeholder")}
-        help={S("form.season.help")}
-      />
-      <Field
-        id="magnitude"
-        label={S("form.magnitude.label")}
-        value={magnitude}
-        onChange={setMagnitude}
-        placeholder={S("form.magnitude.placeholder")}
-        type="number"
-        step="any"
-      />
-
+      <MonthSelect value={season} onChange={setSeason} id="rc-month" />
       <button
         type="submit"
-        disabled={props.loading}
+        disabled={props.loading || !loc}
         className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60"
       >
         {props.loading ? S("form.busy") : S("form.submit")}
@@ -671,9 +663,29 @@ function PredictionsHistoryTab() {
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
 
+  function downloadHistory() {
+    if (!data || data.items.length === 0) return
+    const csv = toCsv(
+      ["disaster_type", "severity_level", "probability_pct", "risk_score",
+       "region_name", "latitude", "longitude", "created_at"],
+      data.items.map((it) => [
+        it.disaster_type ?? "", it.severity_level ?? "",
+        it.probability_score != null ? (it.probability_score * 100).toFixed(1) : "",
+        it.risk_score ?? "", it.region_name ?? "",
+        it.latitude ?? "", it.longitude ?? "", it.created_at,
+      ]),
+    )
+    downloadCsv(`prediction-history_page-${page}.csv`, csv)
+  }
+
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-800">{S("history.title")}</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-800">{S("history.title")}</h2>
+        {data && data.items.length > 0 && (
+          <DownloadCsvButton onClick={downloadHistory} label={S("download.csv.history")} />
+        )}
+      </div>
 
       {loading && (
         <p className="text-sm text-slate-500">{S("history.loading")}</p>
@@ -763,10 +775,14 @@ function PredictionsHistoryTab() {
 
 function SubscriptionsTab() {
   const { data: session } = useSession()
+  const role = session?.user?.role
+  const limit = subscriptionLimit(role)   // role layer is the single source (UX mirror)
+
   const [subs, setSubs]       = useState<SubscriptionListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
+  const [confirmSub, setConfirmSub] = useState<SubscriptionListItem | null>(null)
 
   // Add form state
   const [region, setRegion]   = useState("")
@@ -776,8 +792,14 @@ function SubscriptionsTab() {
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError]     = useState<string | null>(null)
 
-  const isPremium = session?.user?.role === "premium" || session?.user?.role === "admin"
-  const limit = isPremium ? 10 : 3
+  function downloadSubs() {
+    if (subs.length === 0) return
+    const csv = toCsv(
+      ["region_name", "latitude", "longitude", "alert_frequency", "created_at"],
+      subs.map((s) => [s.region_name, s.latitude, s.longitude, s.alert_frequency, s.created_at]),
+    )
+    downloadCsv("subscriptions.csv", csv)
+  }
 
   function loadSubs() {
     setLoading(true)
@@ -797,7 +819,7 @@ function SubscriptionsTab() {
     if (!region.trim()) { setAddError("Region name is required."); return }
     if (isNaN(latNum) || latNum < -90 || latNum > 90) { setAddError(S("form.lat.error")); return }
     if (isNaN(lonNum) || lonNum < -180 || lonNum > 180) { setAddError(S("form.lon.error")); return }
-    if (subs.length >= limit) { setAddError(`Limit reached (${limit} active subscriptions for your plan).`); return }
+    if (subs.length >= limit) { setAddError(Sf("subs.limit.reached", { limit })); return }
 
     setAddLoading(true)
     try {
@@ -820,17 +842,23 @@ function SubscriptionsTab() {
       setSubs((prev) => prev.filter((s) => s.id !== id))
     } finally {
       setRemoving(null)
+      setConfirmSub(null)
     }
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800">{S("subs.title")}</h2>
-        <p className="mt-1 text-sm text-slate-500">{S("subs.subtitle")}</p>
-        <p className="mt-0.5 text-xs text-slate-400">
-          {isPremium ? S("subs.limit.premium") : S("subs.limit.free")}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">{S("subs.title")}</h2>
+          <p className="mt-1 text-sm text-slate-500">{S("subs.subtitle")}</p>
+          <p className="mt-0.5 text-xs text-slate-400">
+            {Sf("subs.limit.note", { limit })}
+          </p>
+        </div>
+        {subs.length > 0 && (
+          <DownloadCsvButton onClick={downloadSubs} label={S("download.csv.subscriptions")} />
+        )}
       </div>
 
       {/* Add form */}
@@ -895,11 +923,10 @@ function SubscriptionsTab() {
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      disabled={removing === sub.id}
-                      onClick={() => onRemove(sub.id, sub.unsubscribe_token)}
-                      className="text-xs text-red-600 hover:text-red-800 disabled:opacity-40"
+                      onClick={() => setConfirmSub(sub)}
+                      className="text-xs text-red-600 hover:text-red-800"
                     >
-                      {removing === sub.id ? S("subs.removing") : S("subs.remove")}
+                      {S("subs.remove")}
                     </button>
                   </td>
                 </tr>
@@ -908,6 +935,67 @@ function SubscriptionsTab() {
           </table>
         </div>
       )}
+
+      {confirmSub && (
+        <ConfirmUnsubscribeModal
+          regionName={confirmSub.region_name}
+          busy={removing === confirmSub.id}
+          onCancel={() => setConfirmSub(null)}
+          onConfirm={() => onRemove(confirmSub.id, confirmSub.unsubscribe_token)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Clear "Are you sure you want to unsubscribe from <region>?" dialog.
+// Replaces the old inline "Remove?" so the action names the region and explains
+// it stops alerts (and is reversible). Soft-deletes server-side (is_active=false).
+function ConfirmUnsubscribeModal({
+  regionName,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  regionName: string
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-slate-900">
+          {Sf("unsubscribe.confirm.title", { region: regionName })}
+        </h3>
+        <p className="mt-2 text-sm text-slate-600">{S("unsubscribe.confirm.body")}</p>
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {S("unsubscribe.confirm.cancel")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {busy ? S("subs.removing") : S("unsubscribe.confirm.action")}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -915,7 +1003,25 @@ function SubscriptionsTab() {
 // ──────────────────────────────────────────────────────────────────────────
 // Alerts Tab
 
+function AlertsUpgradeCta() {
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6">
+      <h3 className="text-base font-semibold text-emerald-900">{S("alerts.upgrade.title")}</h3>
+      <p className="mt-1 max-w-2xl text-sm text-emerald-800">{S("alerts.upgrade.body")}</p>
+      <a
+        href="/pricing"
+        className="mt-4 inline-flex items-center justify-center rounded-md bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+      >
+        {S("alerts.upgrade.cta")}
+      </a>
+    </div>
+  )
+}
+
 function AlertsTab() {
+  const { data: session } = useSession()
+  const isPremium = meetsRole(session?.user?.role, "premium")
+
   const [data, setData]       = useState<AlertHistoryResponse | null>(null)
   const [page, setPage]       = useState(1)
   const [loading, setLoading] = useState(true)
@@ -933,7 +1039,11 @@ function AlertsTab() {
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Premium: subscription-driven 30-day alert forecast (+ auto email + PDF).
+          Non-premium: an upgrade CTA. In-app alert history follows for everyone. */}
+      {isPremium ? <AlertsForecastPanel /> : <AlertsUpgradeCta />}
+
       <div>
         <h2 className="text-lg font-semibold text-slate-800">{S("alerts.title")}</h2>
         <p className="mt-1 text-sm text-slate-500">{S("alerts.subtitle")}</p>

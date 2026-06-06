@@ -26,11 +26,13 @@ from services import alert_service
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-REGISTER = "/api/v1/auth/register"
-LOGIN    = "/api/v1/auth/login"
-VERIFY   = "/api/v1/auth/verify-email"
-DISPATCH = "/api/v1/alerts/dispatch"
-HISTORY  = "/api/v1/alerts/history"
+REGISTER          = "/api/v1/auth/register"
+LOGIN             = "/api/v1/auth/login"
+VERIFY            = "/api/v1/auth/verify-email"
+DISPATCH          = "/api/v1/alerts/dispatch"
+MONTHLY_DISPATCH  = "/api/v1/alerts/monthly-dispatch"
+HISTORY           = "/api/v1/alerts/history"
+EMAIL_FORECAST    = "/api/v1/alerts/email-forecast"
 
 _DISPATCH_SECRET = "unit-test-dispatch-secret-abc"
 
@@ -91,6 +93,41 @@ async def _create_subscription(
     db_session.add(sub)
     await db_session.flush()
     return sub
+
+
+async def _seed_forecast_batch(
+    db_session: AsyncSession,
+    user_id: uuid.UUID,
+    region_name: str = "Cairo",
+    disaster_type: str = "Flood",
+) -> uuid.UUID:
+    """Insert a small forecast batch (offsets 0,1,2) so the most-recent-batch query
+    has data. Probabilities are varied so the peak day (offset 1 → day 2) is
+    deterministic. Returns the shared forecast_batch_id."""
+    from models.prediction import Prediction
+
+    batch_id = uuid.uuid4()
+    rows = [
+        (0, 0.20, SeverityLevel.low),
+        (1, 0.80, SeverityLevel.critical),  # ← peak
+        (2, 0.50, SeverityLevel.medium),
+    ]
+    for offset, prob, sev in rows:
+        db_session.add(Prediction(
+            user_id             = user_id,
+            region_name         = region_name,
+            latitude            = 30.06,
+            longitude           = 31.24,
+            disaster_type       = disaster_type,
+            probability_score   = prob,
+            severity_level      = sev,
+            risk_score          = prob * 100,
+            model_version       = "v4.2",
+            forecast_batch_id   = batch_id,
+            forecast_day_offset = offset,
+        ))
+    await db_session.flush()
+    return batch_id
 
 
 # ── Mock: make AsyncSessionLocal() yield the test session ─────────────────────
@@ -277,6 +314,86 @@ async def test_dispatch_shared_secret_creates_alert_rows(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 5b. dispatch evaluates the region — weekly alert carries computed type + severity
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_dispatch_weekly_uses_model_evaluated_risk(
+    client: AsyncClient, db_session: AsyncSession
+):
+    token = await _register_and_login(client, db_session, "dispatch_eval@test.com", role="admin")
+    # The admin also has a weekly subscription so there's a region to evaluate.
+    admin = await _get_user(db_session, "dispatch_eval@test.com")
+    await _create_subscription(db_session, admin.id, region_name="Cairo",
+                               alert_frequency=AlertFrequency.weekly)
+
+    # Patch the per-region risk evaluation to a known Critical Flood.
+    with patch("services.alert_service._evaluate_subscription",
+               lambda sub: ("Flood", 0.9, "Critical")):
+        resp = await client.post(
+            DISPATCH, json={"alert_type": "weekly_digest"}, headers=_auth(token),
+        )
+    assert resp.status_code == 200
+
+    alerts = (await db_session.execute(
+        select(Alert).where(Alert.user_id == admin.id)
+    )).scalars().all()
+    assert len(alerts) == 1
+    assert alerts[0].disaster_type  == "Flood"
+    assert alerts[0].severity_level == SeverityLevel.critical
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5c. high_risk_immediate gates on severity — Low skipped, High/Critical fires
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_dispatch_immediate_skips_low_severity(
+    client: AsyncClient, db_session: AsyncSession
+):
+    token = await _register_and_login(client, db_session, "dispatch_low@test.com", role="admin")
+    admin = await _get_user(db_session, "dispatch_low@test.com")
+    await _create_subscription(db_session, admin.id, region_name="Cairo",
+                               alert_frequency=AlertFrequency.immediate)
+
+    with patch("services.alert_service._evaluate_subscription",
+               lambda sub: ("Flood", 0.1, "Low")):
+        resp = await client.post(
+            DISPATCH, json={"alert_type": "high_risk_immediate"}, headers=_auth(token),
+        )
+    assert resp.status_code == 200
+    assert resp.json()["queued"] == 0
+
+    alerts = (await db_session.execute(
+        select(Alert).where(Alert.user_id == admin.id)
+    )).scalars().all()
+    assert alerts == []
+
+
+async def test_dispatch_immediate_fires_on_high_severity(
+    client: AsyncClient, db_session: AsyncSession
+):
+    token = await _register_and_login(client, db_session, "dispatch_high@test.com", role="admin")
+    admin = await _get_user(db_session, "dispatch_high@test.com")
+    await _create_subscription(db_session, admin.id, region_name="Cairo",
+                               alert_frequency=AlertFrequency.immediate)
+
+    with patch("services.alert_service._evaluate_subscription",
+               lambda sub: ("Earthquake", 0.85, "Critical")):
+        resp = await client.post(
+            DISPATCH, json={"alert_type": "high_risk_immediate"}, headers=_auth(token),
+        )
+    assert resp.status_code == 200
+    assert resp.json()["queued"] == 1
+
+    alerts = (await db_session.execute(
+        select(Alert).where(Alert.user_id == admin.id)
+    )).scalars().all()
+    assert len(alerts) == 1
+    assert alerts[0].disaster_type  == "Earthquake"
+    assert alerts[0].severity_level == SeverityLevel.critical
+    assert alerts[0].alert_type     == AlertType.high_risk_immediate
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 6. POST /alerts/dispatch — missing auth → 401
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -374,3 +491,132 @@ async def test_alert_history_pagination(
 async def test_alert_history_requires_auth(client: AsyncClient):
     resp = await client.get(HISTORY)
     assert resp.status_code == 401
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. POST /alerts/email-forecast — Premium-only, emails the forecast peak day
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_email_forecast_requires_premium(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """A plain subscriber cannot email themselves the forecast — must get 403."""
+    token = await _register_and_login(client, db_session, "ef_sub@test.com")
+    user  = await _get_user(db_session, "ef_sub@test.com")
+    await _seed_forecast_batch(db_session, user.id)
+
+    resp = await client.post(EMAIL_FORECAST, headers=_auth(token))
+    assert resp.status_code == 403
+
+
+async def test_email_forecast_no_forecast_returns_404(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Premium user with no forecast yet → 404 (nothing to email)."""
+    token = await _register_and_login(client, db_session, "ef_none@test.com", role="premium")
+    resp = await client.post(EMAIL_FORECAST, headers=_auth(token))
+    assert resp.status_code == 404
+
+
+async def test_email_forecast_sends_and_logs(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Premium user with a forecast → 200, sent, and a PremiumEmailLog row written.
+
+    No RESEND_API_KEY in tests → send_premium_alert_email returns a dev-fallback
+    sentinel (status 'sent'), proving the pipeline ran end-to-end.
+    """
+    token = await _register_and_login(client, db_session, "ef_prem@test.com", role="premium")
+    user  = await _get_user(db_session, "ef_prem@test.com")
+    await _create_subscription(db_session, user.id, region_name="Cairo")
+    await _seed_forecast_batch(db_session, user.id, region_name="Cairo")
+
+    resp = await client.post(EMAIL_FORECAST, headers=_auth(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sent"] is True
+    assert data["to"] == user.email
+    assert data["peak_day"] == 2          # offset 1 (highest probability) → day 2
+    assert data["disaster_type"] == "Flood"
+    assert data["severity_level"] == "Critical"
+    assert data["region_name"] == "Cairo"
+
+    logs = (await db_session.execute(
+        select(PremiumEmailLog).where(PremiumEmailLog.user_id == user.id)
+    )).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].email_type.value == "custom"
+    assert logs[0].status.value     == "sent"
+    assert logs[0].alert_id is None
+    assert logs[0].resend_message_id is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. POST /alerts/monthly-dispatch — requires auth
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_monthly_dispatch_requires_auth(client: AsyncClient):
+    resp = await client.post(MONTHLY_DISPATCH, json={})
+    assert resp.status_code == 401
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. POST /alerts/monthly-dispatch — future month → 400
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_monthly_dispatch_future_month_returns_400(
+    client: AsyncClient, db_session: AsyncSession
+):
+    from datetime import datetime, timezone
+    now   = datetime.now(timezone.utc)
+    token = await _register_and_login(client, db_session, "mdisp_future@test.com", role="admin")
+
+    future_month = now.month + 2 if now.month <= 10 else 1
+    future_year  = now.year if now.month <= 10 else now.year + 1
+
+    resp = await client.post(
+        MONTHLY_DISPATCH,
+        json={"year": future_year, "month": future_month},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 400
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. POST /alerts/monthly-dispatch — dispatches to premium users with alerts
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_monthly_dispatch_dispatches_to_premium_users(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Monthly dispatch for the current month; premium user has one alert → dispatched=1."""
+    from datetime import datetime, timezone
+
+    now   = datetime.now(timezone.utc)
+    token = await _register_and_login(client, db_session, "mdisp_prem@test.com", role="admin")
+
+    # Register a separate premium user and seed an alert for them this month
+    await _register_and_login(client, db_session, "mdisp_recv@test.com", role="premium")
+    recv = await _get_user(db_session, "mdisp_recv@test.com")
+    sub  = await _create_subscription(db_session, recv.id, region_name="Cairo")
+
+    db_session.add(Alert(
+        id              = uuid.uuid4(),
+        subscription_id = sub.id,
+        user_id         = recv.id,
+        alert_type      = AlertType.weekly_digest,
+        sent_at         = datetime.now(timezone.utc),
+        status          = AlertStatus.sent,
+    ))
+    await db_session.flush()
+
+    resp = await client.post(
+        MONTHLY_DISPATCH,
+        json={"year": now.year, "month": now.month},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["queued_in_background"] is True
+    assert data["dispatched"] >= 1
+    assert data["period"] == f"{now.year:04d}-{now.month:02d}"

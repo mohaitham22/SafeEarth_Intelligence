@@ -47,6 +47,7 @@ const STRINGS_EN: Record<string, string> = {
     "ML-powered disaster predictions, impact estimates, 30-day forecasts, and a live global risk map — for any region on Earth, backed by official EM-DAT data.",
   "home.hero.ctaPrimary":   "Create free account",
   "home.hero.ctaSecondary": "Explore risk map",
+  "home.hero.ctaDashboard": "Go to dashboard",
 
   // Home — summary stat cards
   // Sources: totalEvents from /regions/continent-stats (sum of total_events, full 1900-2021 range)
@@ -84,6 +85,27 @@ const STRINGS_EN: Record<string, string> = {
   "home.forecast.cta":       "Create free account",
   "home.forecast.disclaimer":
     "Forecast based on historical patterns and seasonal trends — not live weather data.",
+  // Home — role-aware forecast section (subscriber/premium variants)
+  "home.forecast.upgrade.title": "Unlock the 30-day forecast",
+  "home.forecast.upgrade.body":
+    "The 30-day forecast is a Premium feature. Upgrade to see day-by-day risk, peak windows, and the most likely disaster for any region.",
+  "home.forecast.upgrade.cta":   "Upgrade to Premium",
+  "home.forecast.premium.title": "Your 30-day forecast",
+  "home.forecast.premium.body":
+    "Run a day-by-day disaster risk forecast for any region you choose.",
+  "home.forecast.premium.cta":   "Open 30-day forecast",
+  "home.forecast.premium.region":   "Showing your latest region: {region}",
+  "home.forecast.premium.loading":  "Loading your regions…",
+  "home.forecast.premium.full":     "Open the full forecast",
+  "home.forecast.premium.noRegion.title": "No region yet",
+  "home.forecast.premium.noRegion.body":
+    "Subscribe to a region to see its day-by-day 30-day forecast here.",
+  "home.forecast.premium.noRegion.cta":   "Add a region",
+
+  // Home — ads slot (guests; managed by admins in Studio, Phase 10)
+  "home.ads.eyebrow":    "Sponsored",
+  "home.ads.title":      "Get more from SafeEarth",
+  "home.ads.defaultCta": "Learn more",
 
   // Home — features grid (links out to pages already scaffolded)
   "home.features.title":           "Explore the platform",
@@ -159,29 +181,45 @@ const STRINGS_EN: Record<string, string> = {
   // Analytics — trends
   "analytics.trends.title":       "Disaster frequency by decade (1950-2020)",
   "analytics.trends.help":        "One line per disaster type. Earthquake / Flood / Storm dominate; Drought and Volcanic activity stay low.",
-  "analytics.trends.insightTitle":"Floods are accelerating",
-  "analytics.trends.insightBody": "Recorded floods grew {multiple}x from {n80} events in the 1980s to {n00} in the 2000s.",
   "analytics.trends.legend.decade":"Decade",
+  // Direction-aware insight — uses the selected date range boundaries (d1, d2), not hardcoded decades.
+  "analytics.trends.insightTitle.up":   "{type} events are accelerating",
+  "analytics.trends.insightTitle.down": "{type} events are declining",
+  "analytics.trends.insightTitle.flat": "{type} events are roughly stable",
+  "analytics.trends.insightBody.up":    "Recorded {type} grew {multiple}× — from {n1} in the {d1}s to {n2} in the {d2}s.",
+  "analytics.trends.insightBody.down":  "Recorded {type} fell — from {n1} in the {d1}s to {n2} in the {d2}s.",
+  "analytics.trends.insightBody.flat":  "Recorded {type} held roughly steady — {n1} in the {d1}s vs {n2} in the {d2}s.",
+  // "All types" aggregate insight
+  "analytics.trends.insightTitle.all.up":   "Total disaster events are rising",
+  "analytics.trends.insightTitle.all.down": "Total disaster events are declining",
+  "analytics.trends.insightTitle.all.flat": "Total disaster events are roughly stable",
+  "analytics.trends.insightBody.all.up":    "All disasters combined grew {multiple}× — from {n1} total events in the {d1}s to {n2} in the {d2}s.",
+  "analytics.trends.insightBody.all.down":  "All disasters combined fell — from {n1} total events in the {d1}s to {n2} in the {d2}s.",
+  "analytics.trends.insightBody.all.flat":  "All disasters combined held roughly steady — {n1} total events in the {d1}s vs {n2} in the {d2}s.",
 
   // Analytics — continents
-  "analytics.continents.title":   "Total events per continent (1900-2021)",
-  "analytics.continents.help":    "Asia accounts for ~40% of recorded events. Each bar is annotated with that continent's most-common disaster type.",
+  "analytics.continents.title":   "Events per continent (1900-2021)",
+  "analytics.continents.help":    "Asia accounts for ~40% of recorded events. Select a disaster type to see how it distributes across continents.",
+  "analytics.continents.typeEvents": "{type} events",
+  "analytics.continents.metricNote": "Metric filter applies to all disaster types combined. Select a specific type above to see its event counts.",
   "analytics.continents.yLabel":  "Total events",
 
   // Analytics — insurance gap
-  "analytics.insurance.title":    "Insurance coverage ratio per disaster type",
-  "analytics.insurance.help":     "Median insured / total damage. Low coverage means most losses fall on households.",
-  "analytics.insurance.insightTitle":"The insurance gap is real",
-  "analytics.insurance.insightBody": "Only {eq}% of earthquake damage and {fl}% of flood damage is insured globally. The rest is paid by households and governments.",
-  "analytics.insurance.yLabel":   "Coverage ratio",
+  "analytics.insurance.title":    "How much of the damage is typically insured?",
+  "analytics.insurance.help":     "Each bar shows what share of a typical disaster's damage was covered by insurance, based on historical events where both figures were available. Storm and Wildfire rank highest because most of those recorded losses occur in high-income countries with strong insurance markets. Low bars — Drought, Earthquake — mean most recorded losses went uninsured.",
+  "analytics.insurance.insightTitle":"The insurance gap is stark",
+  "analytics.insurance.insightBody": "For a typical earthquake, only {eq}% of damage was insured; for a flood, {fl}%. The rest fell on households and governments.",
+  "analytics.insurance.yLabel":   "% of damage insured",
+  "analytics.insurance.caveat":   "Data limitation: only events where both insured and total damage were recorded are included (fewer than 40% of events). These figures reflect insurance market patterns, not shares of total global damage.",
 
   // Analytics — time series
   "analytics.timeseries.title":   "Time series — decadal trend per disaster type",
   "analytics.timeseries.help":    "Bars show event counts; the line is a least-squares linear trend across all 13 decades. Decades with fewer than 10 recorded events are greyed out — sample size too small to read.",
   "analytics.timeseries.typeLabel":"Disaster type",
   "analytics.timeseries.eventsAxis":"Events",
-  "analytics.timeseries.trendLabel":"Linear trend",
+  "analytics.timeseries.trendLabel":"Trend (linear regression)",
   "analytics.timeseries.eventsLabel":"Events",
+  "analytics.timeseries.recordedLabel":"Recorded {metric}",
   "analytics.timeseries.greyNote":"Greyed bars = decade with fewer than 10 events.",
   "analytics.timeseries.slope.increasing": "Increasing",
   "analytics.timeseries.slope.decreasing": "Decreasing",
@@ -224,6 +262,14 @@ const STRINGS_EN: Record<string, string> = {
   "unsubscribe.error.body":   "This unsubscribe link is invalid or has already been used.",
   "unsubscribe.home":         "Go to home",
   "unsubscribe.noToken":      "No unsubscribe token was found in this link.",
+  // Confirmation (shared by the dashboard modal + the public email page)
+  "unsubscribe.confirm.title":  "Unsubscribe from {region}?",
+  "unsubscribe.confirm.body":   "You'll stop receiving alerts for this region. You can re-subscribe anytime.",
+  "unsubscribe.confirm.cancel": "Cancel",
+  "unsubscribe.confirm.action": "Unsubscribe",
+  "unsubscribe.confirm.keep":   "Keep my subscription",
+  "unsubscribe.already.title":  "Already unsubscribed",
+  "unsubscribe.already.body":   "You're already unsubscribed from {region}.",
 
   // Forecast page (Feature 10) — Subscriber+ only
   "forecast.title":            "30-day forecast",
@@ -236,6 +282,7 @@ const STRINGS_EN: Record<string, string> = {
   "forecast.error.rateLimit":  "Rate limit reached (5 forecasts per hour). Try again later.",
   "forecast.error.generic":    "Could not run the forecast. Try again in a moment.",
   "forecast.disclaimer":       "Forecast based on historical patterns and seasonal trends — not live weather data.",
+  "forecast.reconcileNote":    "Rolling projection: each day uses its own calendar month. Day 1 (today) matches the Risk Level Classifier for the current month; days within the same month share the same risk (no live weather feed).",
   "forecast.summary.title":    "Risk summary",
   "forecast.summary.highest":  "Highest risk day",
   "forecast.summary.likely":   "Most likely disaster",
@@ -256,7 +303,7 @@ const STRINGS_EN: Record<string, string> = {
 
   // Risk map page
   "map.title":             "Global risk map",
-  "map.subtitle":          "Heat overlay shows ~330 historical disaster events with composite risk score 0-100. Click any point to predict risk there.",
+  "map.subtitle":          "Colored points show ~330 historical disaster events by composite risk level (0-100). Hover a point for its risk; click any point — or anywhere — to predict risk there.",
   "map.loading":           "Loading map tiles...",
   "map.dataLoading":       "Loading heat data...",
   "map.dataError":         "Could not load risk points. The base map still works.",
@@ -271,6 +318,15 @@ const STRINGS_EN: Record<string, string> = {
   "map.popup.disaster":    "Type",
   "map.popup.guestCta":    "Sign up to predict risk here",
   "map.popup.subscriberCta":"Run prediction at this point",
+  "map.popup.predicting":  "Predicting…",
+  "map.popup.severity":    "Severity",
+  "map.popup.probability": "Probability",
+  "map.popup.riskScore":   "Risk score",
+  "map.popup.openFull":    "Open full result",
+  "map.popup.globalNote":  "Global impact estimate — open the full form for country-level detail.",
+  "map.popup.error":       "Could not run the prediction. Please try again.",
+  "map.popup.rateLimit":   "Too many predictions — wait a minute and try again.",
+  "map.popup.unauth":      "Please log in to predict.",
   "map.attribution":       'Map &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 
   // Severity badge
@@ -307,10 +363,6 @@ const STRINGS_EN: Record<string, string> = {
   "card1.badge":        "XGB + CatBoost Classifier",
   "card1.year.label":   "Target year",
   "card1.year.placeholder": "e.g. 2025",
-  "card1.continent.label": "Continent",
-  "card1.continent.placeholder": "e.g. Africa",
-  "card1.season.label": "Month / season (optional)",
-  "card1.season.placeholder": "e.g. 7 or summer",
   "card1.submit":       "Classify",
   "card1.busy":         "Classifying...",
   "card1.result.top":   "Most likely disaster",
@@ -323,12 +375,6 @@ const STRINGS_EN: Record<string, string> = {
   "card2.badge":        "XGB + RF Regressors",
   "card2.year.label":   "Prediction year",
   "card2.year.placeholder": "e.g. 2025",
-  "card2.continent.label": "Continent",
-  "card2.continent.placeholder": "e.g. Asia",
-  "card2.country.label": "Country (optional)",
-  "card2.country.placeholder": "e.g. Bangladesh",
-  "card2.season.label": "Month / season (optional)",
-  "card2.season.placeholder": "e.g. 6 or monsoon",
   "card2.submit":       "Predict impact",
   "card2.busy":         "Predicting...",
   "card2.result.type":  "Most likely disaster",
@@ -342,8 +388,23 @@ const STRINGS_EN: Record<string, string> = {
 
   // Card 3 — Risk Level Classifier
   "card3.title":        "Risk Level Classifier",
-  "card3.subtitle":     "Get severity, SHAP explanation, and safety recommendations.",
+  "card3.subtitle":     "Severity, SHAP explanation, and safety recommendations for the month you choose.",
   "card3.badge":        "XGB Severity Classifier",
+  "card3.reconcileNote": "Single-scenario risk for the chosen month. Day 1 (today) of the 30-day forecast matches this when the month is set to the current month.",
+
+  // Shared month / season selector (Cards 1-3 — req 3: one consistent input)
+  "month.label":        "Month",
+  "month.current":      "Current month",
+  "month.jan": "January",   "month.feb": "February", "month.mar": "March",
+  "month.apr": "April",     "month.may": "May",      "month.jun": "June",
+  "month.jul": "July",      "month.aug": "August",   "month.sep": "September",
+  "month.oct": "October",   "month.nov": "November", "month.dec": "December",
+
+  // Download data (CSV export — req 5)
+  "download.csv":          "Download CSV",
+  "download.csv.forecast": "Download 30-day CSV",
+  "download.csv.history":  "Export CSV",
+  "download.csv.subscriptions": "Export CSV",
   "dashboard.overview.title":   "Run a prediction",
   "dashboard.overview.subtitle": "Estimate disaster risk and impact for any region. Predictions are saved to your history.",
 
@@ -368,11 +429,11 @@ const STRINGS_EN: Record<string, string> = {
   // Subscriptions tab
   "subs.title":            "Region Subscriptions",
   "subs.subtitle":         "Subscribe to regions to receive alerts when disaster risk is detected.",
-  "subs.limit.free":       "Free accounts: up to 3 active subscriptions.",
-  "subs.limit.premium":    "Premium accounts: up to 10 active subscriptions.",
+  "subs.limit.note":       "Up to {limit} active subscriptions on your plan.",
+  "subs.limit.reached":    "Subscription limit reached ({limit} active for your plan).",
   "subs.add.title":        "Add subscription",
   "subs.add.region":       "Region name",
-  "subs.add.region.ph":    "e.g. Cairo, Egypt",
+  "subs.add.region.ph":    "e.g. New York, Cairo",
   "subs.add.lat":          "Latitude",
   "subs.add.lon":          "Longitude",
   "subs.add.freq":         "Alert frequency",
@@ -409,6 +470,37 @@ const STRINGS_EN: Record<string, string> = {
   "alerts.status.failed":  "Failed",
   "alerts.status.pending": "Pending",
 
+  // Alerts tab — Premium 30-day alert forecast (subscription-driven)
+  "alerts.premium.title":      "30-Day Alert Forecast",
+  "alerts.premium.subtitle":   "A day-by-day disaster risk outlook for one of your subscribed regions, with probabilities. Generating it also emails you the highest-risk day.",
+  "alerts.premium.region":     "Region",
+  "alerts.premium.type":       "Disaster type",
+  "alerts.premium.generate":   "Generate alert forecast",
+  "alerts.premium.busy":       "Generating forecast...",
+  "alerts.premium.empty":      "Pick a region and disaster type, then generate your 30-day alert forecast.",
+  "alerts.premium.disclaimer": "Forecast based on historical patterns and seasonal trends — not live weather data.",
+  "alerts.premium.loading":    "Loading your regions...",
+  "alerts.premium.noRegion.title": "No subscribed regions yet",
+  "alerts.premium.noRegion.body":  "Subscribe to a region to generate its 30-day alert forecast.",
+  "alerts.premium.noRegion.cta":   "Add a region",
+  "alerts.premium.day":        "Day {n} ({date})",
+
+  // Alerts tab — auto email-on-generate status
+  "alerts.email.sending": "Emailing your alert summary...",
+  "alerts.email.sent":    "Alert emailed to {email} (peak: Day {day}, {severity}).",
+  "alerts.email.failed":  "Forecast ready, but the email could not be sent. Try again later.",
+  "alerts.email.dev":     "Email delivery is in dev mode — the alert was logged, not sent.",
+
+  // Alerts tab — PDF download
+  "alerts.pdf.download":  "Download PDF",
+  "alerts.pdf.preparing": "Preparing PDF...",
+  "alerts.pdf.error":     "Could not generate the PDF. Try again.",
+
+  // Alerts tab — upgrade CTA for non-premium
+  "alerts.upgrade.title": "Unlock 30-day alert forecasts",
+  "alerts.upgrade.body":  "Premium adds a day-by-day alert forecast for your regions, HTML email alerts, and downloadable PDF reports.",
+  "alerts.upgrade.cta":   "Upgrade to Premium",
+
   // Prediction form
   "form.lat.label":          "Latitude",
   "form.lat.placeholder":    "e.g. 30.05",
@@ -416,19 +508,17 @@ const STRINGS_EN: Record<string, string> = {
   "form.lon.label":          "Longitude",
   "form.lon.placeholder":    "e.g. 31.24",
   "form.lon.error":          "Longitude must be between -180 and 180.",
-  "form.country.label":      "Country",
-  "form.country.placeholder": "e.g. Egypt",
-  "form.continent.label":    "Continent",
-  "form.continent.placeholder": "e.g. Africa",
   "form.disasterType.label": "Disaster type",
-  "form.season.label":       "Season or month (optional)",
-  "form.season.placeholder": "Leave blank for current month",
-  "form.season.help":        'Name ("spring", "summer", "autumn", "winter") or month number 1-12.',
-  "form.magnitude.label":    "Magnitude (optional)",
-  "form.magnitude.placeholder": "Richter / kph / km² / °C",
   "form.submit":             "Run prediction",
   "form.busy":               "Running prediction...",
   "form.required":           "All fields above are required.",
+
+  // Location picker (cascading continent -> country -> fixed centroid)
+  "location.continent.label": "Continent",
+  "location.country.label":   "Country",
+  "location.coords.auto":     "Coordinates: {lat}, {lon} (auto-filled from country)",
+  "location.loading":         "Loading countries...",
+  "location.error":           "Could not load the country list. Please refresh.",
 
   // Filter bar (shared across all charts)
   "filter.label.disasterType":  "Disaster Type",
@@ -438,9 +528,11 @@ const STRINGS_EN: Record<string, string> = {
   "filter.label.fromDecade":    "From",
   "filter.label.toDecade":      "To",
   "filter.label.minSeverity":   "Min Severity",
+  "filter.label.continent":     "Region",
   "filter.all.types":           "All Types",
   "filter.all.levels":          "All Levels",
   "filter.all.severities":      "All Severities",
+  "filter.all.continents":      "All regions",
   "filter.metric.events":       "Events",
   "filter.metric.deaths":       "Deaths",
   "filter.metric.affected":     "Affected",
@@ -470,8 +562,8 @@ const STRINGS_EN: Record<string, string> = {
   "result.affected":          "Estimated affected",
   "result.damage":            "Estimated damage",
   "result.uninsured":         "Uninsured loss",
-  "result.coverage.injuries": "Estimate based on ~26% of recorded events — injuries data is often missing.",
-  "result.coverage.damage":   "Estimate based on ~33% of recorded events — damage data is often missing.",
+  "result.coverage.injuries": "Low-confidence: injuries were recorded for only ~26% of historical events.",
+  "result.coverage.damage":   "Low-confidence: economic damage was recorded for only ~33% of historical events.",
   "result.dataSource.country": "Based on historical events in {country}.",
   "result.dataSource.region":  "Based on regional historical average ({n} events).",
   "result.dataSource.global":  "Based on the global historical average ({n} events).",
@@ -503,9 +595,17 @@ const STRINGS_EN: Record<string, string> = {
   "timeseries.page.title":    "Historical Disaster Trends",
   "timeseries.page.subtitle":
     "Decadal event counts with linear regression trend lines. Pick any disaster type and metric — 1900–2020, served from precomputed EM-DAT data.",
-  "timeseries.insight.title": "Floods are accelerating",
-  "timeseries.insight.body":
-    "Recorded floods grew {multiple}× from {n80} events in the 1980s to {n00} in the 2000s.",
+  // Direction-aware insight — uses selected metric, not hardcoded events.
+  "timeseries.insight.title.up":   "{type} {metric} are rising",
+  "timeseries.insight.title.down": "{type} {metric} are declining",
+  "timeseries.insight.title.flat": "{type} {metric} are roughly stable",
+  "timeseries.insight.body.up":    "Recorded {type} {metric} grew {multiple}× — from {n1} in the 1980s to {n2} in the 2000s.",
+  "timeseries.insight.body.down":  "Recorded {type} {metric} fell — from {n1} in the 1980s to {n2} in the 2000s.",
+  "timeseries.insight.body.flat":  "Recorded {type} {metric} held roughly steady — {n1} in the 1980s vs {n2} in the 2000s.",
+  "timeseries.insight.none":       "Not enough 1980s / 2000s data for {type} {metric} to compute a trend.",
+  // Tooltip explanation for the two chart series
+  "timeseries.tooltip.note":       "Bars = actual EM-DAT recorded figures. Trend line = least-squares fit across all decades, showing the long-run direction.",
+  "analytics.timeseries.trendLabel.short": "Trend line",
 
   // Nav — timeseries + forecast links
   "nav.timeseries": "Time Series",
@@ -525,11 +625,12 @@ const STRINGS_EN: Record<string, string> = {
   "forecast.landing.redirect":       "Taking you to your forecast…",
 
   // Admin page tabs and content
+  "admin.tab.overview":       "Overview",
   "admin.tab.users":          "Users",
+  "admin.tab.studio":         "Studio",
   "admin.tab.modelStats":     "Model Stats",
+  "admin.tab.alerts":         "Alerts",
   "admin.tab.payments":       "Payments",
-  "admin.tab.dispatch":       "Manual Dispatch",
-  "admin.tab.emailLogs":      "Email Logs",
 
   "admin.users.title":        "All Users",
   "admin.users.col.email":    "Email",
@@ -573,6 +674,62 @@ const STRINGS_EN: Record<string, string> = {
   "admin.dispatch.queued":      "Queued {n} alert(s)",
   "admin.dispatch.message":     "Response",
   "admin.dispatch.error":       "Dispatch failed",
+
+  // Admin — Overview stats
+  "admin.overview.title":               "Site Overview",
+  "admin.overview.users":               "Total Users",
+  "admin.overview.verified":            "Verified",
+  "admin.overview.premium":             "Premium",
+  "admin.overview.predictions":         "Total Predictions",
+  "admin.overview.predictions7d":       "Predictions (7 days)",
+  "admin.overview.activeSubs":          "Active Subscriptions",
+  "admin.overview.alertsSent":          "Alerts Sent",
+  "admin.overview.alerts7d":            "Alerts (7 days)",
+  "admin.overview.revenue":             "Revenue (USD)",
+  "admin.overview.emailLogs":           "Email Logs",
+  "admin.overview.loading":             "Loading overview…",
+  "admin.overview.error":               "Failed to load overview.",
+
+  // Admin — Studio (ads CRUD)
+  "admin.studio.title":                 "Studio — Ads",
+  "admin.studio.newAd":                 "New Ad",
+  "admin.studio.createTitle":           "Create Ad",
+  "admin.studio.editTitle":             "Edit Ad",
+  "admin.studio.label.title":           "Title",
+  "admin.studio.label.body":            "Body Text",
+  "admin.studio.label.linkUrl":         "Link URL",
+  "admin.studio.label.ctaLabel":        "CTA Label",
+  "admin.studio.label.sortOrder":       "Sort Order",
+  "admin.studio.label.active":          "Active",
+  "admin.studio.save":                  "Save",
+  "admin.studio.saving":                "Saving…",
+  "admin.studio.cancel":                "Cancel",
+  "admin.studio.delete":                "Deactivate",
+  "admin.studio.deleted":               "Deactivated",
+  "admin.studio.inactive":              "Inactive",
+  "admin.studio.active":                "Active",
+  "admin.studio.loading":               "Loading ads…",
+  "admin.studio.empty":                 "No ads yet. Create one above.",
+  "admin.studio.error":                 "Failed to load ads.",
+
+  // Admin — Alerts tab
+  "admin.alerts.previewTitle":          "Dispatch Preview",
+  "admin.alerts.activeSubs":            "Active subscriptions",
+  "admin.alerts.premiumUsers":          "Premium users",
+  "admin.alerts.weeklyTitle":           "Manual Weekly Dispatch",
+  "admin.alerts.weeklyDesc":            "Triggers the weekly alert fan-out for all active subscriptions.",
+  "admin.alerts.weeklyCta":             "Trigger Weekly Dispatch",
+  "admin.alerts.weeklyBusy":            "Dispatching…",
+  "admin.alerts.monthlyTitle":          "Monthly Digest Dispatch",
+  "admin.alerts.monthlyDesc":           "Emails all premium users a digest of their alerts for the chosen month.",
+  "admin.alerts.monthlyYear":           "Year",
+  "admin.alerts.monthlyMonth":          "Month",
+  "admin.alerts.monthlyCta":            "Send Monthly Digest",
+  "admin.alerts.monthlyBusy":           "Sending…",
+  "admin.alerts.resultQueued":          "Queued {n} digest(s) — {period}",
+  "admin.alerts.resultWeekly":          "Queued {n} alert(s)",
+  "admin.alerts.error":                 "Dispatch failed",
+  "admin.alerts.loading":               "Loading dispatch preview…",
 
   "admin.comingSoon.title": "Coming Soon",
   "admin.comingSoon.body":  "This section has no backend endpoint yet. It will be implemented in a future phase.",

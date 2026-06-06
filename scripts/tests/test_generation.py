@@ -198,6 +198,50 @@ def test_continent_stats_has_top_disaster(continent_stats):
         )
 
 
+def test_continent_stats_has_events_by_type(continent_stats):
+    for continent, stats in continent_stats.items():
+        assert "events_by_type" in stats, (
+            f"{continent}: missing 'events_by_type' key — re-run generate_emdat_stats.py"
+        )
+        ebt = stats["events_by_type"]
+        assert isinstance(ebt, dict), (
+            f"{continent}: events_by_type is {type(ebt).__name__}, expected dict"
+        )
+        assert len(ebt) > 0, (
+            f"{continent}: events_by_type is empty"
+        )
+        for dtype, count in ebt.items():
+            assert isinstance(count, int) and count > 0, (
+                f"{continent}: events_by_type[{dtype!r}] = {count!r} — expected positive int"
+            )
+        # The top disaster must appear in events_by_type.
+        top = stats["top_disaster"]
+        assert top in ebt, (
+            f"{continent}: top_disaster={top!r} not in events_by_type keys {list(ebt)}"
+        )
+
+
+def test_timeseries_has_continent_decade(timeseries):
+    assert "by_continent_decade" in timeseries, (
+        "timeseries.json missing 'by_continent_decade' — re-run generate_emdat_stats.py"
+    )
+    bcd = timeseries["by_continent_decade"]
+    assert len(bcd) >= 5, f"Expected at least 5 continents, got {len(bcd)}"
+    # Each continent must have Flood and Earthquake (two highest-event types globally).
+    for continent, types_map in bcd.items():
+        for dtype in ("Flood", "Earthquake"):
+            assert dtype in types_map, (
+                f"by_continent_decade[{continent!r}] missing {dtype!r}"
+            )
+            arr = types_map[dtype]
+            assert len(arr) == 13, (
+                f"by_continent_decade[{continent!r}][{dtype!r}] has {len(arr)} decades, expected 13"
+            )
+            assert arr[0]["decade"] == 1900 and arr[-1]["decade"] == 2020, (
+                f"Decade range mismatch for {continent!r}/{dtype!r}"
+            )
+
+
 def test_timeseries_year_range(timeseries):
     flood_years = timeseries["by_year"]["Flood"]
     assert len(flood_years) == 62, (
@@ -220,3 +264,43 @@ def test_timeseries_year_range(timeseries):
     assert flood_decades[-1]["decade"] == 2020, (
         f"Last decade is {flood_decades[-1]['decade']}, expected 2020"
     )
+
+
+# ---------------------------------------------------------------------------
+# countries.json — continent→country picker with fixed centroids (this phase)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def countries():
+    return _load("countries.json")
+
+
+def test_countries_structure_and_default(countries):
+    assert set(countries.keys()) == {"default", "continents"}
+
+    default = countries["default"]
+    for k in ("continent", "name", "label", "lat", "lon"):
+        assert k in default, f"default missing {k}"
+    # Default is the most data-rich country in the dataset (United States).
+    assert "United States" in default["label"], default["label"]
+
+    continents = countries["continents"]
+    assert len(continents) == 5, f"expected 5 continents, got {list(continents)}"
+
+
+def test_countries_entries_valid_and_sorted(countries):
+    emdat = _load("emdat_stats.json")
+    by_country = set(emdat["by_country"].keys())
+
+    for cont, entries in countries["continents"].items():
+        assert len(entries) > 0, f"{cont} empty"
+        counts = [e["n_events"] for e in entries]
+        assert counts == sorted(counts, reverse=True), f"{cont} not sorted by n_events desc"
+        for e in entries:
+            for k in ("name", "label", "iso", "lat", "lon", "n_events"):
+                assert k in e, f"{cont} entry missing {k}: {e}"
+            assert -90 <= e["lat"] <= 90, f"bad lat: {e}"
+            assert -180 <= e["lon"] <= 180, f"bad lon: {e}"
+            assert len(e["iso"]) == 3, f"ISO not 3 chars: {e}"
+            # name must align with an EM-DAT by_country key (country-tier hit)
+            assert e["name"] in by_country, f"name not an EM-DAT country: {e['name']!r}"

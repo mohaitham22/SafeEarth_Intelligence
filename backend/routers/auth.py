@@ -6,6 +6,8 @@ from core.security import create_access_token, create_refresh_token
 from database import get_db
 from models.user import User
 from schemas.auth import (
+    MessageResponse,
+    ResendVerification,
     TokenRefresh,
     TokenResponse,
     UserLogin,
@@ -17,6 +19,7 @@ from services.auth_service import (
     authenticate_user,
     refresh_access_token,
     register_user,
+    resend_verification,
     verify_email_token,
 )
 from services import email_service
@@ -53,6 +56,30 @@ async def login(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
         role=user.role.value,
+    )
+
+
+@router.post("/resend-verification", response_model=MessageResponse)
+async def resend_verification_email(
+    body: ResendVerification,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-send the verification email for an unverified account.
+
+    Always returns the same generic message — never reveals whether an account
+    exists or is already verified.
+    """
+    user = await resend_verification(db, body.email)
+    if user is not None:
+        background_tasks.add_task(
+            email_service.send_verification_email, user.email, user.verification_token
+        )
+    return MessageResponse(
+        message=(
+            "If an unverified account exists for that email, "
+            "a new verification link has been sent."
+        )
     )
 
 

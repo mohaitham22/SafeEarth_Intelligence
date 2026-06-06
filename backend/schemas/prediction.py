@@ -33,7 +33,6 @@ class PredictRequest(BaseModel):
         description='Season name ("spring"/"summer"/"autumn"/"fall"/"winter"), '
                     'integer month 1–12, or 0 for current month',
     )
-    magnitude:     Optional[float]  = Field(default=None, description="Disaster magnitude (Richter/Kph/Km²/°C)")
 
 
 class PredictionResponse(BaseModel):
@@ -103,6 +102,7 @@ class ClassifyRequest(BaseModel):
     latitude:   float            = Field(..., ge=-90,  le=90)
     longitude:  float            = Field(..., ge=-180, le=180)
     continent:  str              = Field(..., min_length=1, max_length=100)
+    country:    Optional[str]    = Field(default=None, max_length=255)
     year:       int              = Field(..., ge=1900, le=2100)
     season:     Union[str, int]  = Field(
         default=0,

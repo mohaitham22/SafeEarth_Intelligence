@@ -9,17 +9,28 @@ import { api, apiClient } from "./api"
 import type { AxiosInstance } from "axios"
 
 import type {
+  Ad,
+  AdAdminItem,
+  AdCreate,
+  AdUpdate,
   AdminUser,
   AdminUsersResponse,
   DataStatus,
+  DispatchPreviewResponse,
   DispatchResult,
+  ModelStats,
+  MonthlyDispatchRequest,
+  MonthlyDispatchResponse,
   PatchUserRequest,
+  SiteStats,
   AlertHistoryResponse,
+  EmailForecastResponse,
   AuthTokens,
   CheckoutRequest,
   CheckoutResponse,
   ClassifyRequest,
   ClassifyResult,
+  CountriesResponse,
   ForecastDay,
   ForecastRequest,
   ImpactRequest,
@@ -32,6 +43,7 @@ import type {
   RiskMapPoint,
   SubscriptionCreate,
   SubscriptionListItem,
+  SubscriptionLookup,
   SubscriptionResponse,
   TokenRefreshRequest,
   TrendsData,
@@ -96,6 +108,12 @@ export const predictions = {
 
   byId: (id: string, client: AxiosClient = apiClient) =>
     client.get<PredictionResult>(`/predictions/${id}`).then((r) => r.data),
+
+  // Premium-only: download the most recent 30-day forecast batch as a PDF blob.
+  forecastPdf: (client: AxiosClient = apiClient) =>
+    client
+      .get<Blob>("/predictions/forecast-30d/pdf", { responseType: "blob" })
+      .then((r) => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +148,9 @@ export const regions = {
 
   riskMap: (client: AxiosClient = api) =>
     client.get<RiskMapPoint[]>("/regions/risk-map").then((r) => r.data),
+
+  countries: (client: AxiosClient = api) =>
+    client.get<CountriesResponse>("/regions/countries").then((r) => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -152,9 +173,15 @@ export const subscriptions = {
   create: (body: SubscriptionCreate, client: AxiosClient = apiClient) =>
     client.post<SubscriptionResponse>("/subscriptions", body).then((r) => r.data),
 
+  // Public read-only lookup by token — names the region before confirming unsubscribe.
+  lookup: (token: string, client: AxiosClient = api) =>
+    client.get<SubscriptionLookup>(`/subscriptions/lookup/${token}`).then((r) => r.data),
+
   // Works for both dashboard (authenticated) and one-click email links (no auth).
   unsubscribe: (token: string, client: AxiosClient = apiClient) =>
-    client.delete<{ status: string }>(`/subscriptions/${token}`).then((r) => r.data),
+    client
+      .delete<{ status: string; region_name: string }>(`/subscriptions/${token}`)
+      .then((r) => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +194,21 @@ export const alerts = {
   ) =>
     client
       .get<AlertHistoryResponse>("/alerts/history", { params })
+      .then((r) => r.data),
+
+  // Premium-only: email the user their most recent forecast's highest-risk day.
+  emailForecast: (client: AxiosClient = apiClient) =>
+    client
+      .post<EmailForecastResponse>("/alerts/email-forecast")
+      .then((r) => r.data),
+
+  // Monthly digest — Admin or X-Dispatch-Secret. Defaults to previous month.
+  monthlyDispatch: (
+    body: MonthlyDispatchRequest,
+    client: AxiosClient = apiClient,
+  ) =>
+    client
+      .post<MonthlyDispatchResponse>("/alerts/monthly-dispatch", body)
       .then((r) => r.data),
 }
 
@@ -217,6 +259,35 @@ export const admin = {
     client
       .post<DispatchResult>("/alerts/dispatch", { alert_type: "weekly_digest" })
       .then((r) => r.data),
+
+  stats: (client: AxiosClient = apiClient) =>
+    client.get<SiteStats>("/admin/stats").then((r) => r.data),
+
+  modelStats: (client: AxiosClient = apiClient) =>
+    client.get<ModelStats>("/admin/model-stats").then((r) => r.data),
+
+  dispatchPreview: (client: AxiosClient = apiClient) =>
+    client.get<DispatchPreviewResponse>("/admin/alerts/dispatch-preview").then((r) => r.data),
+
+  allAds: (client: AxiosClient = apiClient) =>
+    client.get<AdAdminItem[]>("/admin/ads").then((r) => r.data),
+
+  createAd: (body: AdCreate, client: AxiosClient = apiClient) =>
+    client.post<AdAdminItem>("/admin/ads", body).then((r) => r.data),
+
+  updateAd: (id: string, body: AdUpdate, client: AxiosClient = apiClient) =>
+    client.patch<AdAdminItem>(`/admin/ads/${id}`, body).then((r) => r.data),
+
+  deleteAd: (id: string, client: AxiosClient = apiClient) =>
+    client.delete<{ deleted: boolean }>(`/admin/ads/${id}`).then((r) => r.data),
+}
+
+// ---------------------------------------------------------------------------
+// /ads  (public — home-page promotional content for guests)
+// ---------------------------------------------------------------------------
+export const ads = {
+  list: (client: AxiosClient = api) =>
+    client.get<Ad[]>("/ads").then((r) => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -246,4 +317,5 @@ export const endpoints = {
   premium,
   health,
   admin,
+  ads,
 }

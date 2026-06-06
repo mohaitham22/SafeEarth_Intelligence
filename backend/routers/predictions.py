@@ -12,7 +12,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.deps import get_current_user, require_premium
+from core.deps import require_premium, require_subscriber
 from database import get_db
 from models.prediction import Prediction
 from models.user import User
@@ -33,15 +33,8 @@ from services import alert_service, pdf_service, predictor_service
 router  = APIRouter(prefix="/predictions", tags=["predictions"])
 limiter = Limiter(key_func=get_remote_address)
 
-# ── Subscriber-or-above guard ──────────────────────────────────────────────────
-
-async def require_subscriber(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role.value not in ("subscriber", "premium", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Subscriber access required",
-        )
-    return current_user
+# Subscriber-or-above guard now lives in core/deps.py (require_subscriber) — the
+# single source of truth, built on core/permissions.py.
 
 
 # ── POST /predictions/predict ─────────────────────────────────────────────────
@@ -63,7 +56,6 @@ async def predict(
         continent     = body.continent,
         disaster_type = body.disaster_type,
         season        = body.season,
-        magnitude     = body.magnitude,
         user_id       = current_user.id,
         db            = db,
     )
@@ -121,6 +113,7 @@ async def classify(
         latitude  = body.latitude,
         longitude = body.longitude,
         continent = body.continent,
+        country   = body.country,
         year      = body.year,
         season    = body.season,
         magnitude = body.magnitude,
@@ -201,32 +194,16 @@ async def forecast_30d_pdf(
     db: AsyncSession    = Depends(get_db),
 ):
     """Download the most recent 30-day forecast batch as a PDF (Premium only)."""
-    batch_q = await db.execute(
-        select(Prediction.forecast_batch_id)
-        .where(
-            Prediction.user_id == current_user.id,
-            Prediction.forecast_batch_id.is_not(None),
-        )
-        .order_by(Prediction.created_at.desc())
-        .limit(1)
+    days = await predictor_service.get_latest_forecast_days(
+        db=db, user_id=current_user.id
     )
-    batch_id = batch_q.scalar_one_or_none()
-    if batch_id is None:
+    if not days:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No forecast found. Run a 30-day forecast first.",
         )
 
-    rows_q = await db.execute(
-        select(Prediction)
-        .where(
-            Prediction.user_id          == current_user.id,
-            Prediction.forecast_batch_id == batch_id,
-        )
-        .order_by(Prediction.forecast_day_offset.asc())
-    )
-    days = rows_q.scalars().all()
-
+    batch_id   = days[0].forecast_batch_id
     region_name = days[0].region_name if days else None
     pdf_bytes = pdf_service.generate_forecast_pdf(days, current_user.full_name, region_name)
 

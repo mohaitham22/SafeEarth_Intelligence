@@ -86,6 +86,31 @@ class TimeseriesResponse(BaseModel):
 # /regions/risk-map — heat-points for the public Leaflet map
 # ---------------------------------------------------------------------------
 
+class CountryEntry(BaseModel):
+    """One selectable country in the location picker. `name` is the exact EM-DAT
+    country string (sent back on predictions so the country-tier impact lookup
+    hits); `label` is the cleaned display string; lat/lon is a fixed centroid."""
+    name:     str
+    label:    str
+    iso:      str
+    lat:      float
+    lon:      float
+    n_events: int
+
+
+class CountryDefault(BaseModel):
+    continent: str
+    name:      str
+    label:     str
+    lat:       float
+    lon:       float
+
+
+class CountriesResponse(BaseModel):
+    default:    CountryDefault
+    continents: dict[str, list[CountryEntry]]
+
+
 class RiskMapPoint(BaseModel):
     """One historical disaster event with valid lat/lon and a composite risk
     score in [0, 100]. risk_score uses the CLAUDE.md formula with the

@@ -38,10 +38,30 @@ async def register_user(db: AsyncSession, user_data: UserRegister) -> User:
     await db.commit()
     await db.refresh(user)
 
-    # TODO: Phase 6 will send actual email via SMTP
-    logger.info("Verification token for %s: %s", user.email, verification_token)
-    print(f"[DEV] Verification token for {user.email}: {verification_token}")
+    # The verification email (incl. the token) is dispatched by the /auth/register
+    # router via BackgroundTasks → email_service.send_verification_email. When SMTP
+    # creds are absent that service dev-logs the token, so local dev still works.
+    logger.info("Registered %s (pending verification)", user.email)
 
+    return user
+
+
+async def resend_verification(db: AsyncSession, email: str) -> User | None:
+    """Regenerate the verification token for an unverified user and return them.
+
+    Returns None for unknown emails or already-verified accounts so the endpoint
+    can respond uniformly without revealing which addresses exist. The caller is
+    responsible for dispatching the email (via BackgroundTasks).
+    """
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None or user.is_verified:
+        return None
+
+    user.verification_token = secrets.token_urlsafe(32)
+    await db.commit()
+    await db.refresh(user)
     return user
 
 

@@ -32,3 +32,9 @@ export interface SubscriptionListItem {
   unsubscribe_token: string
   created_at:        string
 }
+
+// Public, read-only view by unsubscribe token (GET /subscriptions/lookup/{token}).
+export interface SubscriptionLookup {
+  region_name: string
+  is_active:   boolean
+}

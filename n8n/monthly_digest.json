@@ -1,0 +1,83 @@
+{
+  "_comment": "CONFIGURATION REQUIRED before activating: set ALERT_DISPATCH_SECRET as an environment variable in n8n. The value must match ALERT_DISPATCH_SECRET in the FastAPI backend .env. Update the 'url' field to your production backend URL (e.g. https://api.safeearth.tech/api/v1/alerts/monthly-dispatch). See ADMIN_API.md for full setup instructions.",
+  "name": "SafeEarth — Monthly Alert Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-012345678902",
+      "name": "1st of Month 08:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [480, 240],
+      "notes": "Fires on the 1st of each month at 08:00 UTC. Cron: 0 8 1 * *"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/alerts/monthly-dispatch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Dispatch-Secret",
+              "value": "={{ $env.ALERT_DISPATCH_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ year: $now.minus(1, 'month').year, month: $now.minus(1, 'month').month }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "d4e5f6a7-b8c9-0123-defa-123456789003",
+      "name": "POST /alerts/monthly-dispatch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 240],
+      "notes": "Sends one digest email per premium user who had ≥1 alert in the previous calendar month. Body uses $now.minus(1,'month') to target the month before the trigger date. Response: {dispatched: N, skipped: M, period: 'YYYY-MM', queued_in_background: true}. n8n triggers only — FastAPI does all fan-out and email sending."
+    }
+  ],
+  "connections": {
+    "1st of Month 08:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "POST /alerts/monthly-dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "safeearth-monthly-digest-v1",
+  "meta": {
+    "instanceId": "safeearth-local"
+  }
+}

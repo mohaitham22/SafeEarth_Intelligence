@@ -15,6 +15,7 @@ import Link from "next/link"
 
 import { S, Sf } from "@/lib/strings"
 import { endpoints } from "@/lib/endpoints"
+import { toCsv, downloadCsv } from "@/lib/csv"
 import type { ApiError } from "@/lib/api"
 
 import { Nav } from "@/components/Nav"
@@ -22,6 +23,7 @@ import { PredictionResultCard } from "@/components/PredictionResultCard"
 import { SeverityBadge } from "@/components/SeverityBadge"
 import { ForecastCalendar } from "@/components/ForecastCalendar"
 import { ForecastLineChart } from "@/components/ForecastLineChart"
+import { CountrySelect, type LocationValue } from "@/components/CountrySelect"
 
 import type {
   DisasterType,
@@ -114,6 +116,22 @@ function ForecastShell() {
       ? days.find((d) => d.forecast_day_offset === selectedOffset) ?? null
       : null
 
+  function downloadDays() {
+    if (days.length === 0) return
+    const csv = toCsv(
+      ["day", "date", "disaster_type", "probability_pct", "severity_level", "risk_score",
+       "estimated_deaths", "estimated_injuries", "estimated_affected",
+       "estimated_damage_000usd", "uninsured_loss_000usd"],
+      days.map((d) => [
+        d.forecast_day_offset + 1, d.date, d.disaster_type,
+        (d.probability_score * 100).toFixed(1), d.severity_level, d.risk_score,
+        d.estimated_deaths, d.estimated_injuries, d.estimated_affected,
+        d.estimated_damage_usd, d.uninsured_loss_usd,
+      ]),
+    )
+    downloadCsv(`forecast-30d_${pickedType}.csv`, csv)
+  }
+
   return (
     <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Form column */}
@@ -133,6 +151,26 @@ function ForecastShell() {
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {S("forecast.disclaimer")}
         </p>
+        {/* Reconciliation note: how this relates to the Risk Level Classifier */}
+        <p className="text-[11px] text-slate-500 leading-snug">
+          {S("forecast.reconcileNote")}
+        </p>
+
+        {days.length > 0 && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={downloadDays}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <svg viewBox="0 0 20 20" className="w-3.5 h-3.5" fill="currentColor" aria-hidden="true">
+                <path d="M10 3a1 1 0 0 1 1 1v6.586l1.293-1.293a1 1 0 1 1 1.414 1.414l-3 3a1 1 0 0 1-1.414 0l-3-3a1 1 0 1 1 1.414-1.414L9 10.586V4a1 1 0 0 1 1-1Z" />
+                <path d="M4 14a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z" />
+              </svg>
+              {S("download.csv.forecast")}
+            </button>
+          </div>
+        )}
 
         {loading && days.length === 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
@@ -189,32 +227,21 @@ function ForecastForm(props: {
   error: string | null
   onSubmit: (body: ForecastRequest) => Promise<void>
 }) {
-  const [lat,        setLat]        = useState("30.05")
-  const [lon,        setLon]        = useState("31.24")
-  const [country,    setCountry]    = useState("Egypt")
-  const [continent,  setContinent]  = useState("Africa")
+  const [loc,        setLoc]        = useState<LocationValue | null>(null)
   const [type,       setType]       = useState<DisasterType>("Flood")
   const [localError, setLocalError] = useState<string | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setLocalError(null)
-    const latNum = parseFloat(lat)
-    const lonNum = parseFloat(lon)
-    if (Number.isNaN(latNum) || latNum < -90 || latNum > 90) {
-      setLocalError(S("form.lat.error")); return
-    }
-    if (Number.isNaN(lonNum) || lonNum < -180 || lonNum > 180) {
-      setLocalError(S("form.lon.error")); return
-    }
-    if (!country.trim() || !continent.trim()) {
-      setLocalError(S("form.required")); return
+    if (!loc) {
+      setLocalError(S("location.loading")); return
     }
     await props.onSubmit({
-      latitude:      latNum,
-      longitude:     lonNum,
-      country:       country.trim(),
-      continent:     continent.trim(),
+      latitude:      loc.lat,
+      longitude:     loc.lon,
+      country:       loc.country,
+      continent:     loc.continent,
       disaster_type: type,
     })
   }
@@ -228,18 +255,7 @@ function ForecastForm(props: {
           {message}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <Field id="f-lat" label={S("form.lat.label")} value={lat} onChange={setLat}
-               placeholder={S("form.lat.placeholder")} type="number" step="0.0001" />
-        <Field id="f-lon" label={S("form.lon.label")} value={lon} onChange={setLon}
-               placeholder={S("form.lon.placeholder")} type="number" step="0.0001" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field id="f-country"   label={S("form.country.label")}   value={country}
-               onChange={setCountry}   placeholder={S("form.country.placeholder")} />
-        <Field id="f-continent" label={S("form.continent.label")} value={continent}
-               onChange={setContinent} placeholder={S("form.continent.placeholder")} />
-      </div>
+      <CountrySelect value={loc} onChange={setLoc} idPrefix="fc" />
       <div>
         <label htmlFor="f-type" className="block text-xs font-medium text-slate-700">
           {S("form.disasterType.label")}
@@ -255,39 +271,12 @@ function ForecastForm(props: {
       </div>
       <button
         type="submit"
-        disabled={props.loading}
+        disabled={props.loading || !loc}
         className="w-full rounded-md bg-slate-800 text-white text-sm font-medium px-4 py-2.5 hover:bg-slate-700 disabled:opacity-60"
       >
         {props.loading ? S("forecast.busy") : S("forecast.submit")}
       </button>
     </form>
-  )
-}
-
-function Field(props: {
-  id: string
-  label: string
-  value: string
-  onChange: (s: string) => void
-  placeholder?: string
-  type?: string
-  step?: string
-}) {
-  return (
-    <div>
-      <label htmlFor={props.id} className="block text-xs font-medium text-slate-700">
-        {props.label}
-      </label>
-      <input
-        id={props.id}
-        type={props.type ?? "text"}
-        step={props.step}
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        placeholder={props.placeholder}
-        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
-      />
-    </div>
   )
 }
 

@@ -43,3 +43,15 @@ class AlertHistoryResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class EmailForecastResponse(BaseModel):
+    """Result of POST /alerts/email-forecast (Premium emails itself the forecast peak)."""
+
+    sent: bool
+    message_id: Optional[str]
+    to: str
+    peak_day: int
+    disaster_type: Optional[str]
+    severity_level: Optional[str]
+    region_name: Optional[str]

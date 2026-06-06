@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeEarth Monthly Alert Summary</title>
+  <style>
+    body { margin: 0; padding: 0; background: #f1f5f9; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .wrapper { width: 100%; background: #f1f5f9; padding: 32px 0; }
+    .card { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .header { background: #1e40af; padding: 28px 32px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .header p  { color: #bfdbfe; margin: 8px 0 0; font-size: 14px; }
+    .body { padding: 28px 32px; }
+    .greeting { color: #1e293b; font-size: 15px; margin: 0 0 20px; }
+    .summary { color: #475569; font-size: 14px; margin: 0 0 24px; }
+    .section-title { color: #1e293b; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 12px; }
+    table.alerts { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.alerts thead th { background: #f1f5f9; color: #64748b; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 2px solid #e2e8f0; }
+    table.alerts tbody td { color: #334155; padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+    table.alerts tbody tr:last-child td { border-bottom: none; }
+    .sev-low      { display: inline-block; padding: 1px 6px; border-radius: 9999px; font-size: 11px; font-weight: 600; background: #dcfce7; color: #166534; }
+    .sev-medium   { display: inline-block; padding: 1px 6px; border-radius: 9999px; font-size: 11px; font-weight: 600; background: #fef9c3; color: #854d0e; }
+    .sev-high     { display: inline-block; padding: 1px 6px; border-radius: 9999px; font-size: 11px; font-weight: 600; background: #ffedd5; color: #9a3412; }
+    .sev-critical { display: inline-block; padding: 1px 6px; border-radius: 9999px; font-size: 11px; font-weight: 600; background: #fee2e2; color: #991b1b; }
+    .no-alerts { color: #94a3b8; font-style: italic; font-size: 13px; text-align: center; padding: 20px 0; }
+    .cta { text-align: center; margin: 28px 0 0; }
+    .cta a { display: inline-block; background: #1e40af; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; }
+    .footer { background: #f8fafc; padding: 20px 32px; text-align: center; border-top: 1px solid #e2e8f0; }
+    .footer p { color: #94a3b8; font-size: 12px; margin: 0 0 6px; }
+    .footer a { color: #64748b; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="card">
+    <!-- Header -->
+    <div class="header">
+      <h1>SafeEarth Intelligence</h1>
+      <p>Monthly Alert Summary &mdash; {{ period }}</p>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+      <p class="greeting">
+        {% if full_name %}Hi {{ full_name }},{% else %}Hello,{% endif %}
+      </p>
+      <p class="summary">
+        Here is a summary of all disaster risk alerts generated for your subscribed regions
+        during <strong>{{ period }}</strong>.
+      </p>
+
+      <p class="section-title">Alert Log</p>
+
+      {% if alert_rows %}
+      <table class="alerts">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Region</th>
+            <th>Type</th>
+            <th>Severity</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in alert_rows %}
+          {% set sev_class = "sev-" ~ row.severity|lower %}
+          <tr>
+            <td style="white-space:nowrap">{{ row.date }}</td>
+            <td>{{ row.region }}</td>
+            <td>{{ row.disaster_type }}</td>
+            <td><span class="{{ sev_class }}">{{ row.severity }}</span></td>
+            <td>{{ row.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="no-alerts">No alerts were recorded for your regions this period.</p>
+      {% endif %}
+
+      <div class="cta">
+        <a href="{{ frontend_url }}/dashboard">View Full Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>You are receiving this because you are a SafeEarth Premium subscriber.</p>
+      <p>
+        &copy; SafeEarth Intelligence &mdash;
+        <a href="{{ frontend_url }}">safeearth.tech</a>
+      </p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

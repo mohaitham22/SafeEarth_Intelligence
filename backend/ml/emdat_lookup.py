@@ -42,6 +42,7 @@ TRENDS: dict              = {}
 CONTINENT_STATS: dict     = {}
 TIMESERIES: dict          = {}
 RISK_MAP_POINTS: list     = []  # [{lat, lon, risk_score, disaster_type}, ...]
+COUNTRIES: dict           = {}  # {default: {...}, continents: {cont: [{name, label, lat, lon, ...}]}}
 
 # country name (as it appears in EM-DAT) → sub-continental region string
 # e.g. "Egypt" → "Northern Africa", "Japan" → "Eastern Asia"
@@ -61,6 +62,7 @@ def load_all(data_dir: Path = Path("data/generated")) -> None:
     """
     global EMDAT_STATS, SECONDARY_DISASTERS, SEASONAL_PEAKS, INSURANCE_RATIOS
     global TRENDS, CONTINENT_STATS, TIMESERIES, COUNTRY_TO_REGION, RISK_MAP_POINTS
+    global COUNTRIES
 
     files = {
         "emdat_stats":         "emdat_stats.json",
@@ -71,6 +73,7 @@ def load_all(data_dir: Path = Path("data/generated")) -> None:
         "continent_stats":     "continent_stats.json",
         "timeseries":          "timeseries.json",
         "risk_map":            "risk_map.json",
+        "countries":           "countries.json",
     }
 
     loaded: dict = {}
@@ -93,6 +96,7 @@ def load_all(data_dir: Path = Path("data/generated")) -> None:
     CONTINENT_STATS     = loaded["continent_stats"]
     TIMESERIES          = loaded["timeseries"]
     RISK_MAP_POINTS     = loaded["risk_map"]
+    COUNTRIES           = loaded["countries"]
 
     # Build COUNTRY_TO_REGION from the train CSV (Country + Region columns only).
     # Uses the most-frequent Region value per country to handle any inconsistencies.
@@ -226,3 +230,13 @@ def get_risk_map_points() -> list[dict]:
                  "disaster_type": str}
     """
     return RISK_MAP_POINTS
+
+
+def get_countries() -> dict:
+    """Return the continent→country picker table loaded from countries.json.
+
+    Shape: {"default": {continent, name, label, lat, lon},
+            "continents": {<continent>: [{name, label, iso, lat, lon, n_events}]}}
+    `name` is the exact EM-DAT country string (matches by_country keys).
+    """
+    return COUNTRIES

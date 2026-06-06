@@ -29,7 +29,6 @@ export interface PredictRequest {
   continent:     string
   disaster_type: DisasterType
   season?:       SeasonInput   // default 0 (current month)
-  magnitude?:    number | null
 }
 
 export interface PredictionResult {
@@ -95,6 +94,7 @@ export interface ClassifyRequest {
   latitude:   number
   longitude:  number
   continent:  string
+  country?:   string
   year:       number
   season?:    SeasonInput
   magnitude?: number | null

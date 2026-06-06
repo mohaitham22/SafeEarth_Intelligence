@@ -1,10 +1,17 @@
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.deps import get_current_user, require_dispatch_auth
+from core.deps import get_current_user, require_dispatch_auth, require_premium
 from database import get_db
 from models.user import User
-from schemas.alert import AlertHistoryResponse, AlertResponse, DispatchRequest, DispatchResponse
+from schemas.alert import (
+    AlertHistoryResponse,
+    AlertResponse,
+    DispatchRequest,
+    DispatchResponse,
+    EmailForecastResponse,
+)
+from schemas.monthly_dispatch import MonthlyDispatchRequest, MonthlyDispatchResponse
 from services import alert_service
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -37,6 +44,47 @@ async def dispatch_alerts(
     return DispatchResponse(
         queued=queued,
         message=f"Alert dispatch queued for {queued} subscription(s).",
+    )
+
+
+@router.post(
+    "/email-forecast",
+    response_model=EmailForecastResponse,
+)
+async def email_forecast(
+    current_user: User = Depends(require_premium),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email the Premium user an HTML alert summarising their most recent 30-day
+    forecast (highest-risk day). Reuses the Resend premium-alert pipeline; the
+    dashboard fires this automatically after a premium user generates a forecast.
+
+    404 if the user has no forecast yet. Degrade-not-fail on the send itself.
+    """
+    return await alert_service.email_latest_forecast(db=db, user=current_user)
+
+
+@router.post(
+    "/monthly-dispatch",
+    response_model=MonthlyDispatchResponse,
+    dependencies=[Depends(require_dispatch_auth)],
+)
+async def monthly_dispatch(
+    body:             MonthlyDispatchRequest,
+    background_tasks: BackgroundTasks,
+    db:               AsyncSession = Depends(get_db),
+):
+    """Fan out monthly digest emails to all premium users who had ≥1 alert in the period.
+
+    Called by n8n on the 1st of each month (X-Dispatch-Secret header) or manually
+    by an Admin (Bearer JWT). Defaults to the previous calendar month when year/month
+    are omitted. Emails are dispatched via BackgroundTasks — responds immediately.
+    """
+    return await alert_service.dispatch_monthly_digest(
+        year             = body.year,
+        month            = body.month,
+        db               = db,
+        background_tasks = background_tasks,
     )
 
 

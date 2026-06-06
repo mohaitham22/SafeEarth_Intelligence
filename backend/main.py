@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -12,7 +14,7 @@ from config import get_settings
 from ml import emdat_lookup
 from ml import predictor as ml_predictor
 from rag import recommender as rag_recommender
-from routers import auth, predictions, regions, alerts, subscriptions, recommendations, premium, admin
+from routers import auth, predictions, regions, alerts, subscriptions, recommendations, premium, admin, ads
 from services.premium_service import run_expiry_loop
 
 logger = logging.getLogger("safeearth")
@@ -55,16 +57,16 @@ async def lifespan(app: FastAPI):
 
     # ── Phase 4: Load RAG (ChromaDB + sentence-transformers + optional Groq) ──
     # Degrade-on-failure: the service layer falls back to the DB recommendations
-    # table when the recommender raises, so a missing ChromaDB shouldn't take
-    # down predictions or auth. Surface the degradation via /health.rag_loaded.
+    # table when the recommender raises, so a missing chapters.json shouldn't
+    # take down predictions or auth. Surface the degradation via /health.rag_loaded.
     try:
         rag_recommender.load_rag()
         app.state.rag_loaded = True
-        logger.info("RAG pipeline loaded (ChromaDB + embedder + Groq client)")
+        logger.info("RAG pipeline loaded (chapters.json + Groq client)")
     except FileNotFoundError as exc:
         app.state.rag_loaded = False
-        logger.critical("RAG ChromaDB store missing — DEGRADING to DB-fallback only: %s", exc)
-        logger.critical("Fix: run  py -3.12 backend/rag/ingest.py  to (re)build ChromaDB.")
+        logger.critical("RAG chapters.json missing — DEGRADING to DB-fallback only: %s", exc)
+        logger.critical("Fix: run  py -3.12 backend/rag/extract_chapters.py  to rebuild.")
     except Exception:  # noqa: BLE001
         app.state.rag_loaded = False
         logger.critical("Unexpected RAG load failure — DEGRADING to DB-fallback only", exc_info=True)
@@ -115,6 +117,13 @@ app.include_router(subscriptions.router, prefix="/api/v1")  # → /api/v1/subscr
 app.include_router(recommendations.router, prefix="/api/v1") # → /api/v1/recommendations/...
 app.include_router(premium.router, prefix="/api/v1")        # → /api/v1/premium/...
 app.include_router(admin.router, prefix="/api/v1")          # → /api/v1/admin/...
+app.include_router(ads.router, prefix="/api/v1")            # → /api/v1/ads
+
+# Static files — served at /static (NOT under /api/v1).
+# Used for ad images uploaded via POST /admin/ads/{id}/image.
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_STATIC_DIR.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @app.get("/")

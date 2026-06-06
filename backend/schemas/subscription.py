@@ -45,3 +45,11 @@ class SubscriptionListItem(BaseModel):
     is_active: bool
     unsubscribe_token: str
     created_at: datetime
+
+
+class SubscriptionLookupResponse(BaseModel):
+    """Public, read-only view by unsubscribe token — used by the email unsubscribe
+    page to name the region and show whether it is still active before confirming."""
+
+    region_name: str
+    is_active: bool

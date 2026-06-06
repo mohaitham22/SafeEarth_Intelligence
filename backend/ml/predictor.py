@@ -71,6 +71,25 @@ _EMDAT_P99: dict[str, dict] = {
 
 _P99_FALLBACK = {"deaths": 10_000, "affected": 10_000_000, "damage_usd": 2_000_000_000}
 
+# Per-disaster-type plausibility floors used by _apply_plausibility().
+# (injured_per_death, affected_per_death) — applied as FLOORS only (the blended
+# ML/EM-DAT values may exceed them). They nudge obviously-broken outputs (e.g.
+# injured below deaths for an earthquake) toward disaster epidemiology; the hard
+# `deaths <= injured <= affected` ordering clamp is applied last as the guarantee.
+# Zeros are preserved: when deaths == 0 the death-scaled floors are 0, so a
+# Drought (0 deaths, large affected) keeps deaths=injured=0, affected=EM-DAT.
+_IMPACT_RATIOS: dict[str, tuple[float, float]] = {
+    "Earthquake":          (3.0,  30.0),   # high injury + displacement
+    "Storm":               (2.0, 200.0),   # wide affected footprint
+    "Flood":               (1.5, 500.0),   # huge affected, modest deaths
+    "Landslide":           (1.5,  10.0),   # localized
+    "Wildfire":            (1.0,  20.0),   # low affected
+    "Volcanic activity":   (2.0,  50.0),
+    "Drought":             (1.0, 1000.0),  # ~0 direct injuries, but affected dwarfs deaths
+    "Extreme temperature": (0.5, 100.0),   # deaths-heavy, affected high
+}
+_IMPACT_RATIOS_FALLBACK = (1.5, 50.0)
+
 
 # ── Startup loader ─────────────────────────────────────────────────────────────
 
@@ -250,7 +269,9 @@ def predict(
     mag_value     = float(magnitude) if magnitude is not None else 0.0
     decade        = (datetime.now(timezone.utc).year // 10) * 10
 
-    hf     = float(_avg_historical_freq)
+    # Location features now track the selected country/region (previously frozen
+    # to 0 / 0 / global-avg, which made the picked location barely matter).
+    cont_enc, reg_enc, ctry_enc, hf = _resolve_location_features(continent, country, region)
     log_hf = float(np.log1p(hf))
 
     features = np.array([[
@@ -258,9 +279,9 @@ def predict(
         abs(lat),                              # abs_latitude
         float(np.sin(2 * np.pi * lon / 360)), # lon_sin
         float(np.cos(2 * np.pi * lon / 360)), # lon_cos
-        _safe_encode(_bundle["le_continent"], continent),
-        0,                                     # region_enc — not provided; 0 = first-class fallback
-        0,                                     # country_enc — not provided; same fallback
+        cont_enc,
+        reg_enc,                               # region_enc — from country→region map
+        ctry_enc,                              # country_enc — from le_country
         month_sin, month_cos,
         mag_value, has_magnitude,
         hf, log_hf,                            # historical_freq, log_hist_freq
@@ -286,24 +307,31 @@ def predict(
 
     severity = _probability_to_severity(probability)
 
-    # ── Impact regression ──────────────────────────────────────────────────────
-    # Targets were log1p-transformed at training time -> must expm1 + clip(min=0).
-    estimated_deaths   = max(0, int(np.expm1(_regressors["deaths"].predict(features)[0])))
-    estimated_injuries = max(0, int(np.expm1(_regressors["injuries"].predict(features)[0])))
-    estimated_affected = max(0, int(np.expm1(_regressors["affected"].predict(features)[0])))
-    estimated_damage_k = max(0, int(np.expm1(_regressors["damage"].predict(features)[0])))
-    # estimated_damage_k is in thousands USD (matches training target units and DB column)
-
-    # ── SHAP — cached XGBoost explainer, NEVER re-instantiated per request ────
-    shap_values      = _shap_explainer.shap_values(features)
-    shap_explanation = _extract_top_shap(shap_values, class_idx)
-
-    # ── EM-DAT 3-tier impact lookup ────────────────────────────────────────────
+    # ── EM-DAT 3-tier impact lookup (needed BEFORE impact blend) ──────────────
     from ml import emdat_lookup  # noqa: PLC0415
     try:
         impact_stats = emdat_lookup.resolve_impact_stats(disaster_type, country=country)
     except KeyError:
         impact_stats = {"data_source": "global", "country_used": country, "n_events": 0}
+
+    # ── Impact regression — raw, location-aware (disaster-type-blind) signal ──
+    # Targets were log1p-transformed at training time -> must expm1 + clip(min=0).
+    ml_vals = {
+        "deaths":   max(0, int(np.expm1(_regressors["deaths"].predict(features)[0]))),
+        "injuries": max(0, int(np.expm1(_regressors["injuries"].predict(features)[0]))),
+        "affected": max(0, int(np.expm1(_regressors["affected"].predict(features)[0]))),
+        "damage_k": max(0, int(np.expm1(_regressors["damage"].predict(features)[0]))),
+    }
+    # Blend with disaster-type-specific EM-DAT medians + enforce plausibility so
+    # the numbers vary by type and always satisfy deaths <= injured <= affected.
+    estimated_deaths, estimated_injuries, estimated_affected, estimated_damage_k = (
+        _blend_and_constrain_impact(disaster_type, ml_vals, impact_stats)
+    )
+    # estimated_damage_k is in thousands USD (matches training target units and DB column)
+
+    # ── SHAP — cached XGBoost explainer, NEVER re-instantiated per request ────
+    shap_values      = _shap_explainer.shap_values(features)
+    shap_explanation = _extract_top_shap(shap_values, class_idx)
 
     # ── Uninsured loss ─────────────────────────────────────────────────────────
     insurance_ratio = emdat_lookup.get_insurance_ratio(disaster_type)
@@ -365,7 +393,10 @@ def classify_all_types(
         raise RuntimeError(
             "Models not loaded — load_models() must run in the FastAPI lifespan at startup."
         )
-    features = _build_feature_vector(lat, lon, magnitude, season, continent, year, day_offset)
+    features = _build_feature_vector(
+        lat, lon, magnitude, season, continent, year, day_offset,
+        country=country, region=region,
+    )
     proba = _run_ensemble(features)
     classes: list[str] = list(_bundle["le_target"].classes_)
     ranked = sorted(
@@ -411,7 +442,10 @@ def predict_impact(
         raise RuntimeError(
             "Models not loaded — load_models() must run in the FastAPI lifespan at startup."
         )
-    features = _build_feature_vector(lat, lon, None, season, continent, year, day_offset)
+    features = _build_feature_vector(
+        lat, lon, None, season, continent, year, day_offset,
+        country=country, region=region,
+    )
     proba = _run_ensemble(features)
     classes: list[str] = list(_bundle["le_target"].classes_)
     top_idx = int(np.argmax(proba))
@@ -419,10 +453,12 @@ def predict_impact(
     top_prob = float(proba[top_idx])
 
     # ML regressor raw outputs — location-aware, NOT disaster-type-aware.
-    ml_deaths   = max(0, int(np.expm1(_regressors["deaths"].predict(features)[0])))
-    ml_injuries = max(0, int(np.expm1(_regressors["injuries"].predict(features)[0])))
-    ml_affected = max(0, int(np.expm1(_regressors["affected"].predict(features)[0])))
-    ml_damage_k = max(0, int(np.expm1(_regressors["damage"].predict(features)[0])))
+    ml_vals = {
+        "deaths":   max(0, int(np.expm1(_regressors["deaths"].predict(features)[0]))),
+        "injuries": max(0, int(np.expm1(_regressors["injuries"].predict(features)[0]))),
+        "affected": max(0, int(np.expm1(_regressors["affected"].predict(features)[0]))),
+        "damage_k": max(0, int(np.expm1(_regressors["damage"].predict(features)[0]))),
+    }
 
     # EM-DAT 3-tier medians — disaster-type-specific, historically grounded.
     from ml import emdat_lookup  # noqa: PLC0415
@@ -431,16 +467,10 @@ def predict_impact(
     except KeyError:
         impact_stats = {"data_source": "global", "country_used": country, "n_events": 0}
 
-    emdat_deaths   = int(impact_stats.get("median_deaths",        0) or 0)
-    emdat_injuries = int(impact_stats.get("median_injuries",      0) or 0)
-    emdat_affected = int(impact_stats.get("median_affected",      0) or 0)
-    emdat_damage_k = int(impact_stats.get("median_damage_000usd", 0) or 0)
-
-    # Blend: coverage-weighted combination of both signals.
-    estimated_deaths   = int(0.70 * emdat_deaths   + 0.30 * ml_deaths)
-    estimated_injuries = int(0.30 * emdat_injuries + 0.70 * ml_injuries)
-    estimated_affected = int(0.70 * emdat_affected + 0.30 * ml_affected)
-    estimated_damage_k = int(0.35 * emdat_damage_k + 0.65 * ml_damage_k)
+    # Same blend + plausibility path as predict() — single source of truth.
+    estimated_deaths, estimated_injuries, estimated_affected, estimated_damage_k = (
+        _blend_and_constrain_impact(top_type, ml_vals, impact_stats)
+    )
 
     hist_freq = get_historical_freq(region or "")
     expected_events = max(0, round(top_prob * hist_freq))
@@ -464,6 +494,45 @@ def predict_impact(
 
 # ── Private helpers ────────────────────────────────────────────────────────────
 
+def _resolve_location_features(
+    continent: str,
+    country: Optional[str],
+    region: Optional[str] = None,
+) -> tuple[int, int, int, float]:
+    """Resolve the four trained location features from continent/country.
+
+    region_enc, country_enc, and historical_freq were trained with real values
+    but were previously hardcoded to 0 / 0 / global-average at inference time —
+    so the selected location barely affected predictions. We resolve them here:
+      - region: from the EM-DAT country→region map (falling back to an explicit
+        region arg), so it tracks the country the user actually picked;
+      - the categorical encoders map unseen values to 0 (graceful, never raises);
+      - historical_freq: the per-region training frequency (global avg if unknown).
+
+    Returns (continent_enc, region_enc, country_enc, historical_freq).
+    """
+    from ml import emdat_lookup  # noqa: PLC0415
+
+    cont_enc = _safe_encode(_bundle["le_continent"], continent)
+
+    resolved_region: Optional[str] = None
+    if country:
+        resolved_region = emdat_lookup.COUNTRY_TO_REGION.get(country)
+    if not resolved_region:
+        resolved_region = region
+
+    reg_enc  = _safe_encode(_bundle["le_region"],  resolved_region) if resolved_region else 0
+    ctry_enc = _safe_encode(_bundle["le_country"], country)         if country         else 0
+
+    freq_map = _bundle.get("region_freq_map", {})
+    hf = (
+        float(freq_map.get(resolved_region, _avg_historical_freq))
+        if resolved_region
+        else float(_avg_historical_freq)
+    )
+    return cont_enc, reg_enc, ctry_enc, hf
+
+
 def _build_feature_vector(
     lat: float,
     lon: float,
@@ -472,6 +541,9 @@ def _build_feature_vector(
     continent: str,
     year: int,
     day_offset: int = 0,
+    *,
+    country: Optional[str] = None,
+    region: Optional[str] = None,
 ) -> np.ndarray:
     """Build the 16-element feature array used by classify_all_types and predict_impact."""
     month     = _parse_season(season)
@@ -480,15 +552,14 @@ def _build_feature_vector(
     has_magnitude = 1 if magnitude is not None else 0
     mag_value     = float(magnitude) if magnitude is not None else 0.0
     decade        = (year // 10) * 10
-    hf            = float(_avg_historical_freq)
+    cont_enc, reg_enc, ctry_enc, hf = _resolve_location_features(continent, country, region)
     log_hf        = float(np.log1p(hf))
     return np.array([[
         lat, lon,
         abs(lat),
         float(np.sin(2 * np.pi * lon / 360)),
         float(np.cos(2 * np.pi * lon / 360)),
-        _safe_encode(_bundle["le_continent"], continent),
-        0, 0,          # region_enc, country_enc — fallback to 0 (unknown)
+        cont_enc, reg_enc, ctry_enc,
         month_sin, month_cos,
         mag_value, has_magnitude,
         hf, log_hf,
@@ -538,6 +609,15 @@ def _probability_to_severity(p: float) -> str:
     return "Critical"
 
 
+def probability_to_severity(p: float) -> str:
+    """Public severity-band mapper (same fixed thresholds as predict()).
+
+    Exposed so the alert dispatcher can derive a subscription's severity from a
+    classify probability without reaching into a private helper.
+    """
+    return _probability_to_severity(p)
+
+
 def _compute_risk_score(
     disaster_type: str,
     deaths: int,
@@ -561,6 +641,64 @@ def _compute_risk_score(
         + probability   * 0.15
     )
     return round(raw * 100, 1)
+
+
+def _apply_plausibility(
+    disaster_type: str,
+    deaths: int,
+    injuries: int,
+    affected: int,
+) -> tuple[int, int, int]:
+    """Constrain impact estimates to deaths <= injured <= affected.
+
+    Per-type floors (_IMPACT_RATIOS) nudge implausibly-low injured/affected
+    relative to deaths; the monotonic ordering clamp is applied last and is the
+    hard guarantee. Zeros are preserved (a death-light type with 0 deaths keeps
+    its EM-DAT-driven affected without inventing deaths or injuries).
+    """
+    inj_per_death, aff_per_death = _IMPACT_RATIOS.get(disaster_type, _IMPACT_RATIOS_FALLBACK)
+
+    # Floors derived from deaths (only raise, never lower the blended values).
+    if deaths > 0:
+        injuries = max(injuries, int(round(deaths * inj_per_death)))
+        affected = max(affected, int(round(deaths * aff_per_death)))
+
+    # Hard ordering guarantee: deaths <= injured <= affected.
+    injuries = max(injuries, deaths)
+    affected = max(affected, injuries)
+
+    return max(0, deaths), max(0, injuries), max(0, affected)
+
+
+def _blend_and_constrain_impact(
+    disaster_type: str,
+    ml_vals: dict,
+    emdat_stats: dict,
+) -> tuple[int, int, int, int]:
+    """Blend location-aware ML regressor output with EM-DAT type-specific medians,
+    then enforce plausibility. Returns (deaths, injuries, affected, damage_k).
+
+    This is the single source of truth for impact numbers — used by both predict()
+    and predict_impact() so the two paths can never drift. Blend weights match
+    per-field EM-DAT coverage (deaths/affected ~73%, injuries ~26%, damage ~33%):
+      deaths/affected -> 70% EM-DAT + 30% ML
+      injuries        -> 30% EM-DAT + 70% ML
+      damage          -> 35% EM-DAT + 65% ML
+    EM-DAT medians are disaster-type-specific (looked up at country/region/global
+    tier), so Flood and Earthquake at the same coordinates now differ.
+    """
+    emdat_deaths   = int(emdat_stats.get("median_deaths",        0) or 0)
+    emdat_injuries = int(emdat_stats.get("median_injuries",      0) or 0)
+    emdat_affected = int(emdat_stats.get("median_affected",      0) or 0)
+    emdat_damage_k = int(emdat_stats.get("median_damage_000usd", 0) or 0)
+
+    deaths     = int(0.70 * emdat_deaths   + 0.30 * ml_vals["deaths"])
+    injuries   = int(0.30 * emdat_injuries + 0.70 * ml_vals["injuries"])
+    affected   = int(0.70 * emdat_affected + 0.30 * ml_vals["affected"])
+    damage_k   = int(0.35 * emdat_damage_k + 0.65 * ml_vals["damage_k"])
+
+    deaths, injuries, affected = _apply_plausibility(disaster_type, deaths, injuries, affected)
+    return deaths, injuries, affected, max(0, damage_k)
 
 
 def _safe_encode(le, value: str) -> int:
