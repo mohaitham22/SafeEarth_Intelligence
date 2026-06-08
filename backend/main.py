@@ -14,7 +14,7 @@ from config import get_settings
 from ml import emdat_lookup
 from ml import predictor as ml_predictor
 from rag import recommender as rag_recommender
-from routers import auth, predictions, regions, alerts, subscriptions, recommendations, premium, admin, ads
+from routers import auth, predictions, regions, alerts, subscriptions, recommendations, premium, admin, ads, egypt_predictions
 from services.premium_service import run_expiry_loop
 
 logger = logging.getLogger("safeearth")
@@ -118,6 +118,10 @@ app.include_router(recommendations.router, prefix="/api/v1") # → /api/v1/recom
 app.include_router(premium.router, prefix="/api/v1")        # → /api/v1/premium/...
 app.include_router(admin.router, prefix="/api/v1")          # → /api/v1/admin/...
 app.include_router(ads.router, prefix="/api/v1")            # → /api/v1/ads
+
+# n8n monthly Egypt export — registered WITHOUT /api/v1 (the n8n workflow calls
+# the bare /api/egypt-predictions paths).
+app.include_router(egypt_predictions.router)                # → /api/egypt-predictions[/health]
 
 # Static files — served at /static (NOT under /api/v1).
 # Used for ad images uploaded via POST /admin/ads/{id}/image.
