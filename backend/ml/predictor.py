@@ -646,6 +646,18 @@ def probability_to_severity(p: float) -> str:
     return _probability_to_severity(p)
 
 
+def _log_norm(value: float, p99: float) -> float:
+    """Log-scaled 0-1 normalisation for a right-skewed impact magnitude.
+
+    Returns log1p(value) / log1p(p99), clamped to [0, 1]. A value at the p99
+    reference maps to ~1.0; a *typical* (median) value lands in a meaningful
+    mid-range instead of collapsing to ~0 (see _compute_risk_score).
+    """
+    if p99 <= 0:
+        return 0.0
+    return min(max(float(np.log1p(max(value, 0.0)) / np.log1p(p99)), 0.0), 1.0)
+
+
 def _compute_risk_score(
     disaster_type: str,
     deaths: int,
@@ -653,14 +665,25 @@ def _compute_risk_score(
     damage_k: int,       # thousands USD
     probability: float,
 ) -> float:
-    """Composite 0-100 risk score (CLAUDE.md formula)."""
+    """Composite 0-100 risk score (CLAUDE.md formula).
+
+    The impact terms are normalised against the per-type 99th-percentile, but the
+    values fed in here are *medians* (a typical event), and EM-DAT impact is
+    right-skewed by 100x+. A plain ``median / p99`` is therefore ~0, which used to
+    collapse the entire 0-100 score onto just the 0.15 probability term — every
+    prediction scored single digits regardless of its severity (a "Critical"
+    event and a "Low" event both landed near ~10, which the UI's own riskScale
+    would colour "Low"). Log-scaling each magnitude before normalising fixes that
+    scale mismatch: a typical event maps to a sensible mid-range while a true p99
+    catastrophe still approaches 1.0, so the score spans 0-100 and tracks severity.
+    """
     p99 = _EMDAT_P99.get(disaster_type, _P99_FALLBACK)
 
     damage_usd = damage_k * 1000
 
-    norm_deaths   = min(deaths     / p99["deaths"],     1.0)
-    norm_affected = min(affected   / p99["affected"],   1.0)
-    norm_damage   = min(damage_usd / p99["damage_usd"], 1.0)
+    norm_deaths   = _log_norm(deaths,     p99["deaths"])
+    norm_affected = _log_norm(affected,   p99["affected"])
+    norm_damage   = _log_norm(damage_usd, p99["damage_usd"])
 
     raw = (
         norm_deaths   * 0.35
@@ -668,7 +691,7 @@ def _compute_risk_score(
         + norm_damage   * 0.20
         + probability   * 0.15
     )
-    return round(raw * 100, 1)
+    return round(min(max(raw, 0.0), 1.0) * 100, 1)
 
 
 def _apply_plausibility(
