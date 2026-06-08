@@ -263,10 +263,19 @@ function TrendsTab({ data }: { data: TrendsData }) {
 // ──────────────────────────────────────────────────────────────────────────
 // 2. Continents tab — BarChart
 //    Filters: Disaster Type (All | specific) + Metric (Events | Deaths | Damage).
-//    When a specific type is selected the metric dropdown is hidden — we only have
-//    per-type event counts in events_by_type, not per-type median deaths/damage.
+//    Both filters are ALWAYS visible and fully independent: the metric applies to
+//    the all-types continent totals when type = "All", and to that type's
+//    per-continent figures (events_by_type / deaths_by_type / damage_by_type)
+//    when a specific type is chosen.
 
 type ContMetric = "total_events" | "median_deaths" | "median_damage_000usd"
+
+// Per-type field that backs each metric when a specific disaster type is selected.
+const CONT_TYPE_FIELD: Record<ContMetric, "events_by_type" | "deaths_by_type" | "damage_by_type"> = {
+  total_events:         "events_by_type",
+  median_deaths:        "deaths_by_type",
+  median_damage_000usd: "damage_by_type",
+}
 
 function ContinentsTab({ data }: { data: ContinentStats }) {
   const [metric,     setMetric]     = useState<ContMetric>("total_events")
@@ -293,13 +302,16 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
   ]
 
   const isTypeFiltered = filterType !== "All"
+  const isDamage       = metric === "median_damage_000usd"
 
   const rows = useMemo(
     () => {
       return Object.entries(data)
         .map(([continent, v]) => {
+          // type = "All" → continent total for the metric.
+          // specific type → that type's per-continent value for the metric.
           const value = isTypeFiltered
-            ? ((v.events_by_type?.[filterType] ?? 0) as number)
+            ? ((v[CONT_TYPE_FIELD[metric]]?.[filterType] ?? 0) as number)
             : ((v[metric] ?? 0) as number)
           return { continent, value, top_disaster: v.top_disaster }
         })
@@ -308,17 +320,15 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
     [data, metric, filterType, isTypeFiltered],
   )
 
-  const effectiveMetric = isTypeFiltered ? "total_events" : metric
+  const metricLabel =
+    metric === "total_events"  ? S("analytics.continents.yLabel")
+    : metric === "median_deaths" ? S("filter.metric.deaths")
+    :                              S("filter.metric.damage")
   const yLabel = isTypeFiltered
-    ? Sf("analytics.continents.typeEvents", { type: filterType })
-    : effectiveMetric === "total_events"
-    ? S("analytics.continents.yLabel")
-    : effectiveMetric === "median_deaths"
-    ? S("filter.metric.deaths")
-    : S("filter.metric.damage")
+    ? Sf("analytics.continents.typeMetric", { type: filterType, metric: metricLabel })
+    : metricLabel
 
-  const fmtValue = (v: number) =>
-    (!isTypeFiltered && metric === "median_damage_000usd") ? formatUSDFromThousands(v) : formatInt(v)
+  const fmtValue = (v: number) => (isDamage ? formatUSDFromThousands(v) : formatInt(v))
 
   return (
     <ChartCard
@@ -332,11 +342,11 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
               id: "ct-type", label: S("filter.label.disasterType"),
               options: typeOptions, value: filterType, onChange: setFilterType,
             },
-            ...(isTypeFiltered ? [] : [{
+            {
               id: "ct-metric", label: S("filter.label.metric"),
               options: metricOptions, value: metric,
               onChange: (v: string) => setMetric(v as ContMetric),
-            }]),
+            },
           ]}
         />
       </div>
@@ -347,7 +357,7 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
             <XAxis dataKey="continent" tick={{ fontSize: 11, fill: "#475569" }} />
             <YAxis
               tick={{ fontSize: 11, fill: "#475569" }}
-              tickFormatter={(!isTypeFiltered && metric === "median_damage_000usd") ? formatUSDFromThousands : formatInt}
+              tickFormatter={isDamage ? formatUSDFromThousands : formatInt}
               label={{
                 value: yLabel,
                 angle: -90,
@@ -366,7 +376,11 @@ function ContinentsTab({ data }: { data: ContinentStats }) {
                 return top ? `${label}  ·  top: ${top}` : String(label)
               }}
             />
-            <Bar dataKey="value" fill="#0f172a" radius={[6, 6, 0, 0]} />
+            <Bar dataKey="value" fill="#0f172a" radius={[6, 6, 0, 0]}>
+              {rows.map((r) => (
+                <Cell key={r.continent} fill={isTypeFiltered ? (DISASTER_COLORS[filterType] ?? "#0f172a") : "#0f172a"} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>

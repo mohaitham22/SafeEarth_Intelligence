@@ -198,10 +198,9 @@ const STRINGS_EN: Record<string, string> = {
   "analytics.trends.insightBody.all.flat":  "All disasters combined held roughly steady — {n1} total events in the {d1}s vs {n2} in the {d2}s.",
 
   // Analytics — continents
-  "analytics.continents.title":   "Events per continent (1900-2021)",
-  "analytics.continents.help":    "Asia accounts for ~40% of recorded events. Select a disaster type to see how it distributes across continents.",
-  "analytics.continents.typeEvents": "{type} events",
-  "analytics.continents.metricNote": "Metric filter applies to all disaster types combined. Select a specific type above to see its event counts.",
+  "analytics.continents.title":   "Continents compared (1900-2021)",
+  "analytics.continents.help":    "Asia accounts for ~40% of recorded events. Disaster type and metric work together: pick a type to see how it distributes across continents, and a metric (events, deaths, or damage) to choose what's measured.",
+  "analytics.continents.typeMetric": "{type} — {metric}",
   "analytics.continents.yLabel":  "Total events",
 
   // Analytics — insurance gap
@@ -475,7 +474,7 @@ const STRINGS_EN: Record<string, string> = {
 
   // Alerts tab — Premium 30-day alert forecast (subscription-driven)
   "alerts.premium.title":      "30-Day Alert Forecast",
-  "alerts.premium.subtitle":   "A day-by-day disaster risk outlook for one of your subscribed regions, with probabilities. Generating it also emails you the highest-risk day.",
+  "alerts.premium.subtitle":   "A day-by-day disaster risk outlook for any country capital, with probabilities. Generating it also emails you the highest-risk day.",
   "alerts.premium.region":     "Region",
   "alerts.premium.type":       "Disaster type",
   "alerts.premium.generate":   "Generate alert forecast",

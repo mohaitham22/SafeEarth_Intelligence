@@ -10,14 +10,13 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useSession } from "next-auth/react"
-import Link from "next/link"
 
 import { S, Sf } from "@/lib/strings"
 import { endpoints } from "@/lib/endpoints"
 import type { ApiError } from "@/lib/api"
-import { continentFromLatLon } from "@/lib/geo"
+import { CAPITALS, capitalKey, capitalLabel, type CapitalLocation } from "@/lib/capitals"
 
 import { ForecastCalendar } from "@/components/ForecastCalendar"
 import { SeverityBadge } from "@/components/SeverityBadge"
@@ -26,7 +25,6 @@ import type {
   DisasterType,
   EmailForecastResponse,
   ForecastDay,
-  SubscriptionListItem,
 } from "@/types"
 
 const DISASTER_TYPES: DisasterType[] = [
@@ -34,17 +32,20 @@ const DISASTER_TYPES: DisasterType[] = [
   "Volcanic activity", "Landslide", "Drought", "Extreme temperature",
 ]
 
+// Region dropdown is now driven by a curated country+capital config (lib/capitals)
+// instead of the user's subscriptions, so it always offers a wide spread of
+// locations and every option carries the coordinates the forecast needs. Default
+// to Cairo to preserve the original starting point.
+const DEFAULT_CAPITAL: CapitalLocation =
+  CAPITALS.find((c) => c.capital === "Cairo") ?? CAPITALS[0]
+
 type EmailState = "idle" | "sending" | "sent" | "failed"
 
 export function AlertsForecastPanel() {
   const { data: session } = useSession()
   const email = session?.user?.email ?? ""
 
-  const [subs, setSubs]            = useState<SubscriptionListItem[]>([])
-  const [subsLoading, setSubsLoad] = useState(true)
-  const [subsError, setSubsError]  = useState(false)
-
-  const [regionId, setRegionId]   = useState<string>("")
+  const [regionKey, setRegionKey] = useState<string>(capitalKey(DEFAULT_CAPITAL))
   const [type, setType]           = useState<DisasterType>("Flood")
 
   const [days, setDays]           = useState<ForecastDay[]>([])
@@ -58,24 +59,9 @@ export function AlertsForecastPanel() {
   const [pdfBusy, setPdfBusy]     = useState(false)
   const [pdfError, setPdfError]   = useState<string | null>(null)
 
-  // Load the user's subscriptions once (active only, newest first — backend filters).
-  useEffect(() => {
-    let alive = true
-    endpoints.subscriptions.list()
-      .then((s) => {
-        if (!alive) return
-        setSubs(s)
-        if (s.length > 0) setRegionId(s[0].id)
-      })
-      .catch(() => { if (alive) setSubsError(true) })
-      .finally(() => { if (alive) setSubsLoad(false) })
-    return () => { alive = false }
-  }, [])
-
-  const region = subs.find((s) => s.id === regionId) ?? null
+  const region = CAPITALS.find((c) => capitalKey(c) === regionKey) ?? DEFAULT_CAPITAL
 
   async function onGenerate() {
-    if (!region) return
     setError(null)
     setLoading(true)
     setDays([])
@@ -85,11 +71,11 @@ export function AlertsForecastPanel() {
 
     try {
       const out = await endpoints.predictions.forecast30d({
-        latitude:      region.latitude,
-        longitude:     region.longitude,
-        region_name:   region.region_name,
-        country:       region.region_name,
-        continent:     continentFromLatLon(region.latitude, region.longitude),
+        latitude:      region.lat,
+        longitude:     region.lon,
+        region_name:   region.capital,
+        country:       region.country,
+        continent:     region.continent,
         disaster_type: type,
       })
       setDays(out)
@@ -123,7 +109,7 @@ export function AlertsForecastPanel() {
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement("a")
       a.href     = url
-      a.download = `safeearth-forecast_${region?.region_name ?? "report"}.pdf`
+      a.download = `safeearth-forecast_${region.capital}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -139,21 +125,6 @@ export function AlertsForecastPanel() {
     selectedOffset !== null
       ? days.find((d) => d.forecast_day_offset === selectedOffset) ?? null
       : null
-
-  // ── States ────────────────────────────────────────────────────────────────
-  if (subsLoading) {
-    return <Panel><p className="text-sm text-slate-500">{S("alerts.premium.loading")}</p></Panel>
-  }
-  if (subsError) {
-    return <Panel><p className="text-sm text-red-600">{S("forecast.error.generic")}</p></Panel>
-  }
-  if (subs.length === 0) {
-    return (
-      <Panel>
-        <NoRegionPrompt />
-      </Panel>
-    )
-  }
 
   return (
     <Panel>
@@ -172,12 +143,12 @@ export function AlertsForecastPanel() {
           </label>
           <select
             id="af-region"
-            value={regionId}
-            onChange={(e) => setRegionId(e.target.value)}
+            value={regionKey}
+            onChange={(e) => setRegionKey(e.target.value)}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
           >
-            {subs.map((s) => (
-              <option key={s.id} value={s.id}>{s.region_name}</option>
+            {CAPITALS.map((c) => (
+              <option key={capitalKey(c)} value={capitalKey(c)}>{capitalLabel(c)}</option>
             ))}
           </select>
         </div>
@@ -198,7 +169,7 @@ export function AlertsForecastPanel() {
           <button
             type="button"
             onClick={onGenerate}
-            disabled={loading || !region}
+            disabled={loading}
             className="w-full rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
           >
             {loading ? S("alerts.premium.busy") : S("alerts.premium.generate")}
@@ -303,21 +274,6 @@ function StatusBox({ tone, children }: { tone: "ok" | "info" | "error"; children
                        "border-slate-200 bg-slate-50 text-slate-600"
   return (
     <div className={`rounded-lg border px-3 py-2 text-xs ${cls}`}>{children}</div>
-  )
-}
-
-function NoRegionPrompt() {
-  return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
-      <p className="text-sm font-medium text-slate-700">{S("alerts.premium.noRegion.title")}</p>
-      <p className="mt-1 text-sm text-slate-500">{S("alerts.premium.noRegion.body")}</p>
-      <Link
-        href="/dashboard"
-        className="mt-4 inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-      >
-        {S("alerts.premium.noRegion.cta")}
-      </Link>
-    </div>
   )
 }
 

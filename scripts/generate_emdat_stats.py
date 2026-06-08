@@ -395,8 +395,15 @@ def build_trends(df: pd.DataFrame) -> dict:
 
 def build_continent_stats(df: pd.DataFrame) -> dict:
     """
-    {continent: {total_events, top_disaster, median_deaths, median_damage_000usd}}
+    {continent: {total_events, top_disaster, median_deaths, median_damage_000usd,
+                 events_by_type, deaths_by_type, damage_by_type}}
     Uses COL_CONTINENT. Medians computed on p99-capped data.
+
+    deaths_by_type / damage_by_type hold the per-disaster-type medians within each
+    continent so the analytics Continents tab can render ANY (disaster type ×
+    metric) combination. Without them the UI could only show per-type *event
+    counts*, which is why the metric selector used to vanish the moment a disaster
+    type was chosen.
     """
     log.info("Building continent_stats.json ...")
     out: dict = {}
@@ -406,12 +413,19 @@ def build_continent_stats(df: pd.DataFrame) -> dict:
             str(t): int(ct)
             for t, ct in grp[COL_TYPE].value_counts().items()
         }
+        deaths_by_type: dict = {}
+        damage_by_type: dict = {}
+        for dtype, tgrp in grp.groupby(COL_TYPE, sort=False):
+            deaths_by_type[str(dtype)] = _to_int(safe_median(tgrp[COL_DEATHS]))
+            damage_by_type[str(dtype)] = _to_int(safe_median(tgrp[COL_DAMAGE]))
         out[str(continent)] = {
             "total_events":        int(len(grp)),
             "top_disaster":        top_disaster,
             "median_deaths":       _to_int(safe_median(grp[COL_DEATHS])),
             "median_damage_000usd": _to_int(safe_median(grp[COL_DAMAGE])),
             "events_by_type":      events_by_type,
+            "deaths_by_type":      deaths_by_type,
+            "damage_by_type":      damage_by_type,
         }
     log.info("  continent_stats: %d continents", len(out))
     return out

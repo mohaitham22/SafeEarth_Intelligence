@@ -62,6 +62,8 @@ export interface ContinentEntry {
   median_deaths:        number | null
   median_damage_000usd: number | null
   events_by_type?:      Record<string, number>  // per-type event counts (added Phase 5 polish)
+  deaths_by_type?:      Record<string, number>  // per-type median deaths   (lets metric × type work together)
+  damage_by_type?:      Record<string, number>  // per-type median damage ('000 USD)
 }
 export type ContinentStats = Record<string, ContinentEntry>
 
