@@ -472,10 +472,10 @@ const STRINGS_EN: Record<string, string> = {
   "alerts.status.failed":  "Failed",
   "alerts.status.pending": "Pending",
 
-  // Alerts tab — Premium 30-day alert forecast (subscription-driven)
+  // Alerts tab — Premium 30-day alert forecast (any project country)
   "alerts.premium.title":      "30-Day Alert Forecast",
-  "alerts.premium.subtitle":   "A day-by-day disaster risk outlook for any country capital, with probabilities. Generating it also emails you the highest-risk day.",
-  "alerts.premium.region":     "Region",
+  "alerts.premium.subtitle":   "A day-by-day disaster risk outlook for any country we cover, with probabilities. Generating it also emails you the highest-risk day.",
+  "alerts.premium.region":     "Location",
   "alerts.premium.type":       "Disaster type",
   "alerts.premium.generate":   "Generate alert forecast",
   "alerts.premium.busy":       "Generating forecast...",

@@ -1,12 +1,12 @@
-// Premium-only Alerts surface: a 30-day disaster ALERT forecast for one of the
-// user's SUBSCRIBED regions, with probabilities. Generating it ALSO emails the
-// premium user the highest-risk-day summary (req 2 — auto on generate) and offers
-// a downloadable PDF report (req 3). Subscription-driven (req 1 decision).
+// Premium-only Alerts surface: a 30-day disaster ALERT forecast for ANY country
+// the project supports, with probabilities. Generating it ALSO emails the premium
+// user the highest-risk-day summary (req 2 — auto on generate) and offers a
+// downloadable PDF report (req 3).
 //
-// The forecast endpoint needs country + continent which a subscription doesn't
-// store — we pass region_name as country and derive continent from coords
-// (lib/geo). Backend EM-DAT lookup falls back region→global, so this is safe and
-// mirrors HomePremiumForecast.
+// Location is driven by the shared CountrySelect (continent -> country -> fixed
+// centroid, backed by GET /regions/countries — the same 211-country source every
+// other prediction form uses). `country` carries the exact EM-DAT name so the
+// country-tier impact lookup hits; lat/lon come from the selected country.
 
 "use client"
 
@@ -16,8 +16,8 @@ import { useSession } from "next-auth/react"
 import { S, Sf } from "@/lib/strings"
 import { endpoints } from "@/lib/endpoints"
 import type { ApiError } from "@/lib/api"
-import { CAPITALS, capitalKey, capitalLabel, type CapitalLocation } from "@/lib/capitals"
 
+import { CountrySelect, type LocationValue } from "@/components/CountrySelect"
 import { ForecastCalendar } from "@/components/ForecastCalendar"
 import { SeverityBadge } from "@/components/SeverityBadge"
 
@@ -32,21 +32,16 @@ const DISASTER_TYPES: DisasterType[] = [
   "Volcanic activity", "Landslide", "Drought", "Extreme temperature",
 ]
 
-// Region dropdown is now driven by a curated country+capital config (lib/capitals)
-// instead of the user's subscriptions, so it always offers a wide spread of
-// locations and every option carries the coordinates the forecast needs. Default
-// to Cairo to preserve the original starting point.
-const DEFAULT_CAPITAL: CapitalLocation =
-  CAPITALS.find((c) => c.capital === "Cairo") ?? CAPITALS[0]
-
 type EmailState = "idle" | "sending" | "sent" | "failed"
 
 export function AlertsForecastPanel() {
   const { data: session } = useSession()
   const email = session?.user?.email ?? ""
 
-  const [regionKey, setRegionKey] = useState<string>(capitalKey(DEFAULT_CAPITAL))
-  const [type, setType]           = useState<DisasterType>("Flood")
+  // CountrySelect seeds `loc` with the default country once /regions/countries
+  // loads, so this starts null for one render then becomes the default (USA).
+  const [loc, setLoc]   = useState<LocationValue | null>(null)
+  const [type, setType] = useState<DisasterType>("Flood")
 
   const [days, setDays]           = useState<ForecastDay[]>([])
   const [selectedOffset, setSel]  = useState<number | null>(null)
@@ -59,9 +54,8 @@ export function AlertsForecastPanel() {
   const [pdfBusy, setPdfBusy]     = useState(false)
   const [pdfError, setPdfError]   = useState<string | null>(null)
 
-  const region = CAPITALS.find((c) => capitalKey(c) === regionKey) ?? DEFAULT_CAPITAL
-
   async function onGenerate() {
+    if (!loc) return
     setError(null)
     setLoading(true)
     setDays([])
@@ -71,11 +65,11 @@ export function AlertsForecastPanel() {
 
     try {
       const out = await endpoints.predictions.forecast30d({
-        latitude:      region.lat,
-        longitude:     region.lon,
-        region_name:   region.capital,
-        country:       region.country,
-        continent:     region.continent,
+        latitude:      loc.lat,
+        longitude:     loc.lon,
+        region_name:   loc.label,    // country display name — used by the email/PDF
+        country:       loc.country,  // exact EM-DAT name — drives the impact lookup
+        continent:     loc.continent,
         disaster_type: type,
       })
       setDays(out)
@@ -109,7 +103,7 @@ export function AlertsForecastPanel() {
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement("a")
       a.href     = url
-      a.download = `safeearth-forecast_${region.capital}.pdf`
+      a.download = `safeearth-forecast_${loc?.label ?? "report"}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -135,42 +129,36 @@ export function AlertsForecastPanel() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* Controls: location picker (continent -> country) + disaster type + generate */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="af-region" className="block text-xs font-medium text-slate-700">
+          <span className="block text-xs font-medium text-slate-700">
             {S("alerts.premium.region")}
-          </label>
-          <select
-            id="af-region"
-            value={regionKey}
-            onChange={(e) => setRegionKey(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
-          >
-            {CAPITALS.map((c) => (
-              <option key={capitalKey(c)} value={capitalKey(c)}>{capitalLabel(c)}</option>
-            ))}
-          </select>
+          </span>
+          <div className="mt-1">
+            <CountrySelect value={loc} onChange={setLoc} idPrefix="af" />
+          </div>
         </div>
-        <div>
-          <label htmlFor="af-type" className="block text-xs font-medium text-slate-700">
-            {S("alerts.premium.type")}
-          </label>
-          <select
-            id="af-type"
-            value={type}
-            onChange={(e) => setType(e.target.value as DisasterType)}
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
-          >
-            {DISASTER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div className="flex items-end">
+
+        <div className="flex flex-col gap-3">
+          <div>
+            <label htmlFor="af-type" className="block text-xs font-medium text-slate-700">
+              {S("alerts.premium.type")}
+            </label>
+            <select
+              id="af-type"
+              value={type}
+              onChange={(e) => setType(e.target.value as DisasterType)}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
+            >
+              {DISASTER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
           <button
             type="button"
             onClick={onGenerate}
-            disabled={loading}
-            className="w-full rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+            disabled={loading || !loc}
+            className="mt-auto w-full rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
           >
             {loading ? S("alerts.premium.busy") : S("alerts.premium.generate")}
           </button>
