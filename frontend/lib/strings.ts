@@ -374,7 +374,7 @@ const STRINGS_EN: Record<string, string> = {
   // Card 2 — Disaster Impact Prediction
   "card2.title":        "Disaster Impact Prediction",
   "card2.subtitle":     "Estimate deaths, damage, and affected population.",
-  "card2.badge":        "XGB + RF Regressors",
+  "card2.badge":        "Per-type XGB Regressors",
   "card2.year.label":   "Prediction year",
   "card2.year.placeholder": "e.g. 2025",
   "card2.submit":       "Predict impact",
