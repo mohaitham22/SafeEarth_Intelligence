@@ -1,5 +1,5 @@
-// Global analytics — /analytics (CLAUDE.md Feature 2 + Feature 9).
-// Server Component: fetches the four public /regions/* endpoints in parallel
+// Global analytics — /analytics (CLAUDE.md Feature 2).
+// Server Component: fetches the three public /regions/* endpoints in parallel
 // at request time. Next.js then caches the rendered HTML for `revalidate`
 // seconds (24h here — matches backend Cache-Control: max-age=3600 ≤ 24h).
 // All four endpoints are served from in-memory precomputed JSON, so this
@@ -12,7 +12,6 @@ import { AnalyticsPanels } from "@/components/analytics/AnalyticsPanels"
 import type {
   ContinentStats,
   InsuranceRatios,
-  TimeSeriesData,
   TrendsData,
 } from "@/types"
 
@@ -22,18 +21,16 @@ interface Bundle {
   trends:     TrendsData
   continents: ContinentStats
   insurance:  InsuranceRatios
-  timeseries: TimeSeriesData
 }
 
 async function loadBundle(): Promise<{ bundle: Bundle | null; error: string | null }> {
   try {
-    const [trends, continents, insurance, timeseries] = await Promise.all([
+    const [trends, continents, insurance] = await Promise.all([
       endpoints.regions.trends(),
       endpoints.regions.continentStats(),
       endpoints.regions.insuranceGap(),
-      endpoints.regions.timeseries(),
     ])
-    return { bundle: { trends, continents, insurance, timeseries }, error: null }
+    return { bundle: { trends, continents, insurance }, error: null }
   } catch {
     return { bundle: null, error: S("error.publicData.body") }
   }
@@ -55,7 +52,6 @@ export default async function AnalyticsPage() {
               trends={bundle.trends}
               continents={bundle.continents}
               insurance={bundle.insurance}
-              timeseries={bundle.timeseries}
             />
           </div>
         ) : (

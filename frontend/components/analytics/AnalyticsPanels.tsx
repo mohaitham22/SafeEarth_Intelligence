@@ -11,11 +11,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
   Legend,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,8 +26,6 @@ import { FilterBar } from "@/components/FilterBar"
 import type {
   ContinentStats,
   InsuranceRatios,
-  TimeSeriesData,
-  TimeseriesDecadeEntry,
   TrendsData,
 } from "@/types"
 
@@ -46,13 +42,12 @@ const DISASTER_COLORS: Record<string, string> = {
 
 const TREND_DECADES = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020]
 
-type TabId = "trends" | "continents" | "insurance" | "timeseries"
+type TabId = "trends" | "continents" | "insurance"
 
 interface Props {
   trends:     TrendsData
   continents: ContinentStats
   insurance:  InsuranceRatios
-  timeseries: TimeSeriesData
 }
 
 export function AnalyticsPanels(props: Props) {
@@ -65,7 +60,6 @@ export function AnalyticsPanels(props: Props) {
         {tab === "trends"     && <TrendsTab data={props.trends} />}
         {tab === "continents" && <ContinentsTab data={props.continents} />}
         {tab === "insurance"  && <InsuranceTab data={props.insurance} />}
-        {tab === "timeseries" && <TimeSeriesTab data={props.timeseries} />}
       </div>
     </div>
   )
@@ -79,7 +73,6 @@ function Tabs({ value, onChange }: { value: TabId; onChange: (t: TabId) => void 
     { id: "trends",     label: S("analytics.tab.trends") },
     { id: "continents", label: S("analytics.tab.continents") },
     { id: "insurance",  label: S("analytics.tab.insurance") },
-    { id: "timeseries", label: S("analytics.tab.timeseries") },
   ]
   return (
     <nav className="border-b border-slate-200" role="tablist">
@@ -480,203 +473,6 @@ function InsuranceTab({ data }: { data: InsuranceRatios }) {
       <p className="mt-2 text-[11px] text-slate-400">
         {S("analytics.insurance.caveat")}
       </p>
-    </ChartCard>
-  )
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// 4. Time series tab — ComposedChart per disaster type, linear regression
-//    Filters: Disaster Type (existing), Metric (Events | Deaths | Affected | Damage)
-
-const SLOPE_NOISE_FLOOR = 0.05 // |slope| < 5% of mean ⇒ "Stable"
-const GREY_THRESHOLD    = 10
-
-interface RegResult { slope: number; intercept: number }
-function linearRegression(ys: number[]): RegResult {
-  const n   = ys.length
-  if (n < 2) return { slope: 0, intercept: ys[0] ?? 0 }
-  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0
-  for (let i = 0; i < n; i++) {
-    sumX  += i
-    sumY  += ys[i]
-    sumXY += i * ys[i]
-    sumXX += i * i
-  }
-  const denom = n * sumXX - sumX * sumX
-  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom
-  const intercept = (sumY - slope * sumX) / n
-  return { slope, intercept }
-}
-
-type TSMetric = "events" | "deaths" | "affected" | "damage_000usd"
-
-function getMetricVal(r: TimeseriesDecadeEntry, m: TSMetric): number {
-  const v = r[m as keyof TimeseriesDecadeEntry]
-  return typeof v === "number" ? v : 0
-}
-
-function TimeSeriesTab({ data }: { data: TimeSeriesData }) {
-  const types = Object.keys(data.by_decade ?? {}).sort()
-  const [pick,   setPick]   = useState<string>(types.includes("Flood") ? "Flood" : types[0])
-  const [metric, setMetric] = useState<TSMetric>("events")
-
-  const series = data.by_decade[pick] ?? []
-
-  const metricValues = series.map((r) => getMetricVal(r, metric))
-  const { slope, intercept } = useMemo(() => linearRegression(metricValues), [metricValues])
-  const meanVal = metricValues.length
-    ? metricValues.reduce((a, b) => a + b, 0) / metricValues.length
-    : 0
-
-  const rows = series.map((r, i) => ({
-    decade: r.decade,
-    value:  getMetricVal(r, metric),
-    trend:  Math.max(0, intercept + slope * i),
-    // grey-out only applies to the events metric (< 10 events = unreliable decade)
-    isLow:  metric === "events" && (r.events ?? 0) < GREY_THRESHOLD,
-  }))
-
-  let slopeLabel: string
-  if (meanVal > 0 && Math.abs(slope) / meanVal < SLOPE_NOISE_FLOOR) {
-    slopeLabel = S("analytics.timeseries.slope.stable")
-  } else if (slope > 0) {
-    slopeLabel = S("analytics.timeseries.slope.increasing")
-  } else {
-    slopeLabel = S("analytics.timeseries.slope.decreasing")
-  }
-  const slopeBadgeColor =
-    slopeLabel === S("analytics.timeseries.slope.increasing")
-      ? "bg-orange-100 text-orange-800 border-orange-200"
-      : slopeLabel === S("analytics.timeseries.slope.decreasing")
-        ? "bg-green-100 text-green-800 border-green-200"
-        : "bg-slate-100 text-slate-700 border-slate-200"
-
-  const typeOptions   = types.map((t) => ({ value: t, label: t }))
-  const metricOptions = [
-    { value: "events",        label: S("filter.metric.events") },
-    { value: "deaths",        label: S("filter.metric.deaths") },
-    { value: "affected",      label: S("filter.metric.affected") },
-    { value: "damage_000usd", label: S("filter.metric.damage") },
-  ]
-
-  const yAxisLabel: Record<TSMetric, string> = {
-    events:        S("analytics.timeseries.eventsAxis"),
-    deaths:        S("filter.metric.deaths"),
-    affected:      S("filter.metric.affected"),
-    damage_000usd: S("filter.metric.damage"),
-  }
-
-  const fmtValue = (v: number) =>
-    metric === "damage_000usd" ? formatUSDFromThousands(v) : formatInt(v)
-
-  const metricLabel   = metricOptions.find((o) => o.value === metric)?.label ?? S("filter.metric.events")
-  const recordedLabel = Sf("analytics.timeseries.recordedLabel", { metric: metricLabel })
-
-  // Dynamic insight: compare first vs last decade value for selected type + metric
-  const firstVal = metricValues[0] ?? 0
-  const lastVal  = metricValues[metricValues.length - 1] ?? 0
-  const firstDec = series[0]?.decade
-  const lastDec  = series[series.length - 1]?.decade
-  const tsInsightBody = (firstVal > 0 && lastVal > 0 && firstDec !== lastDec)
-    ? Sf("analytics.timeseries.insightBody", {
-        type:   pick,
-        metric: metricLabel,
-        n1:     formatInt(firstVal),
-        n2:     formatInt(lastVal),
-        d1:     firstDec,
-        d2:     lastDec,
-        dir:    slopeLabel.toLowerCase(),
-      })
-    : ""
-
-  return (
-    <ChartCard
-      title={S("analytics.timeseries.title")}
-      help={S("analytics.timeseries.help")}
-    >
-      <div className="mt-3 space-y-2">
-        <FilterBar
-          filters={[
-            {
-              id: "ts-type", label: S("filter.label.disasterType"),
-              options: typeOptions, value: pick, onChange: setPick,
-            },
-            {
-              id: "ts-metric", label: S("filter.label.metric"),
-              options: metricOptions, value: metric,
-              onChange: (v) => setMetric(v as TSMetric),
-            },
-          ]}
-        />
-        <div className="flex items-center justify-end gap-2">
-          <span
-            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${slopeBadgeColor}`}
-          >
-            {slopeLabel}
-          </span>
-          <span className="text-[11px] text-slate-500 tabular-nums">
-            {Sf("analytics.timeseries.slope.full", { slope: slope.toFixed(1) })}
-          </span>
-        </div>
-      </div>
-
-      <div className="h-[380px] mt-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-            <XAxis dataKey="decade" tick={{ fontSize: 11, fill: "#475569" }} />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#475569" }}
-              tickFormatter={metric === "damage_000usd" ? formatUSDFromThousands : formatInt}
-              label={{
-                value: yAxisLabel[metric],
-                angle: -90,
-                position: "insideLeft",
-                style: { fontSize: 11, fill: "#64748b" },
-              }}
-            />
-            <Tooltip
-              contentStyle={{ fontSize: 12 }}
-              formatter={(v: number, name: string) => [fmtValue(v), name]}
-            />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            {metric === "events" && (
-              <ReferenceLine y={GREY_THRESHOLD} stroke="#cbd5e1" strokeDasharray="4 4" />
-            )}
-            <Bar
-              dataKey="value"
-              name={recordedLabel}
-              radius={[4, 4, 0, 0]}
-            >
-              {rows.map((r, i) => (
-                <Cell
-                  key={i}
-                  fill={r.isLow ? "#cbd5e1" : (DISASTER_COLORS[pick] ?? "#0f172a")}
-                />
-              ))}
-            </Bar>
-            <Line
-              type="monotone"
-              dataKey="trend"
-              name={S("analytics.timeseries.trendLabel")}
-              stroke="#0f172a"
-              strokeWidth={2}
-              dot={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-      {metric === "events" && (
-        <p className="mt-2 text-[11px] text-slate-400">
-          {S("analytics.timeseries.greyNote")}
-        </p>
-      )}
-      <p className="mt-1 text-[11px] text-slate-400 italic">
-        {S("analytics.timeseries.chartNote")}
-      </p>
-      {tsInsightBody && (
-        <Insight title={S("analytics.timeseries.insightTitle")} body={tsInsightBody} tone="blue" />
-      )}
     </ChartCard>
   )
 }
