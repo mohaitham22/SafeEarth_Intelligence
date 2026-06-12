@@ -368,11 +368,11 @@ function ImpactCard() {
     if (!result || !loc) return
     const csv = toCsv(
       ["country", "latitude", "longitude", "year", "disaster_type", "probability_pct",
-       "expected_events", "estimated_deaths", "estimated_injuries", "estimated_affected",
+       "estimated_deaths", "estimated_injuries", "estimated_affected",
        "estimated_damage_000usd", "uninsured_loss_000usd", "data_source", "model_version"],
       [[
         loc.label, loc.lat, loc.lon, year, result.predicted_disaster_type,
-        (result.probability * 100).toFixed(1), result.expected_events,
+        (result.probability * 100).toFixed(1),
         result.estimated_deaths, result.estimated_injuries, result.estimated_affected,
         result.estimated_damage_usd, result.uninsured_loss_usd,
         result.data_source, result.model_version,
@@ -418,7 +418,6 @@ function ImpactCard() {
                 <DownloadCsvButton onClick={downloadResult} />
               </div>
               <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <MetricBox label={S("card2.result.events")}   value={formatInt(result.expected_events)} />
                 <MetricBox label={S("card2.result.deaths")}   value={formatInt(result.estimated_deaths)} />
                 <MetricBox label={S("card2.result.injuries")} value={formatInt(result.estimated_injuries)} />
                 <MetricBox label={S("card2.result.affected")} value={formatCompactInt(result.estimated_affected)} />

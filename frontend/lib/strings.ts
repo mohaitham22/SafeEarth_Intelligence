@@ -380,7 +380,6 @@ const STRINGS_EN: Record<string, string> = {
   "card2.submit":       "Predict impact",
   "card2.busy":         "Predicting...",
   "card2.result.type":  "Most likely disaster",
-  "card2.result.events":"Expected events",
   "card2.result.deaths":"Est. deaths",
   "card2.result.injuries": "Est. injuries",
   "card2.result.affected": "Est. affected",
