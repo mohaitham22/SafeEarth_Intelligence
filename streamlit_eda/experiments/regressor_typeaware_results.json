@@ -1,0 +1,33 @@
+{
+  "A_baseline": {
+    "deaths": 1.1294,
+    "injuries": 1.1079,
+    "affected": 3.711,
+    "damage": 3.4623,
+    "mean": 2.3526
+  },
+  "B_type_feature": {
+    "deaths": 1.0302,
+    "injuries": 1.0745,
+    "affected": 3.3647,
+    "damage": 3.3321,
+    "mean": 2.2004
+  },
+  "C_per_type": {
+    "deaths": 0.7905,
+    "injuries": 0.9885,
+    "affected": 3.0223,
+    "damage": 2.5434,
+    "mean": 1.8362
+  },
+  "_meta": {
+    "metric": "holdout log1p-scale MAE (lower=better)",
+    "production_baseline_ref": {
+      "deaths": 1.1294,
+      "injuries": 1.1079,
+      "affected": 3.711,
+      "damage": 3.4623
+    },
+    "runtime_sec": 12.9
+  }
+}

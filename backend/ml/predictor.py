@@ -237,6 +237,30 @@ def get_historical_freq(region: str) -> int:
     return _bundle.get("region_freq_map", {}).get(region, 1)
 
 
+def _select_regressor(target_key: str, disaster_type: str):
+    """Return the impact regressor for (target, disaster_type).
+
+    New per-type bundle (`structure == "per_type_v1"`): use the disaster-type-specific
+    model, falling back to the global drop-null model for type x target combos that had
+    too few observed rows at train time. Legacy flat bundle: return the single model.
+    """
+    reg = _regressors or {}
+    if reg.get("structure") == "per_type_v1":
+        per_type = reg["per_type"].get(disaster_type, {})
+        return per_type.get(target_key) or reg["global"][target_key]
+    return reg[target_key]  # legacy flat {deaths, injuries, affected, damage}
+
+
+def _ml_impact(features: np.ndarray, disaster_type: str) -> dict:
+    """Raw per-type regressor outputs. Targets were log1p at train time -> expm1 + clip>=0."""
+    return {
+        "deaths":   max(0, int(np.expm1(_select_regressor("deaths",   disaster_type).predict(features)[0]))),
+        "injuries": max(0, int(np.expm1(_select_regressor("injuries", disaster_type).predict(features)[0]))),
+        "affected": max(0, int(np.expm1(_select_regressor("affected", disaster_type).predict(features)[0]))),
+        "damage_k": max(0, int(np.expm1(_select_regressor("damage",   disaster_type).predict(features)[0]))),
+    }
+
+
 # ── Public inference function ──────────────────────────────────────────────────
 
 def predict(
@@ -341,14 +365,10 @@ def predict(
     except KeyError:
         impact_stats = {"data_source": "global", "country_used": country, "n_events": 0}
 
-    # ── Impact regression — raw, location-aware (disaster-type-blind) signal ──
-    # Targets were log1p-transformed at training time -> must expm1 + clip(min=0).
-    ml_vals = {
-        "deaths":   max(0, int(np.expm1(_regressors["deaths"].predict(features)[0]))),
-        "injuries": max(0, int(np.expm1(_regressors["injuries"].predict(features)[0]))),
-        "affected": max(0, int(np.expm1(_regressors["affected"].predict(features)[0]))),
-        "damage_k": max(0, int(np.expm1(_regressors["damage"].predict(features)[0]))),
-    }
+    # ── Impact regression — per-type, location-aware signal ───────────────────
+    # Per-type drop-null regressors (routed by disaster_type); targets were log1p at
+    # train time so _ml_impact applies expm1 + clip(min=0).
+    ml_vals = _ml_impact(features, disaster_type)
     # Blend with disaster-type-specific EM-DAT medians + enforce plausibility so
     # the numbers vary by type and always satisfy deaths <= injured <= affected.
     estimated_deaths, estimated_injuries, estimated_affected, estimated_damage_k = (
@@ -457,8 +477,8 @@ def predict_impact(
     The top type is determined by argmax of the ensemble probability.
 
     Impact estimates blend two signals:
-      - ML regressors: location-aware (lat/lon/continent/season/decade) but
-        NOT disaster-type-aware — same 16 features as the classifier.
+      - ML regressors: per-type (one regressor per disaster type, routed by the
+        argmax-selected top_type) + location-aware (the 16 classifier features).
       - EM-DAT 3-tier medians: disaster-type-specific historical ground truth,
         looked up at country → region → global tier.
     Blend weights match per-field EM-DAT data coverage:
@@ -480,13 +500,8 @@ def predict_impact(
     top_type = classes[top_idx]
     top_prob = float(proba[top_idx])
 
-    # ML regressor raw outputs — location-aware, NOT disaster-type-aware.
-    ml_vals = {
-        "deaths":   max(0, int(np.expm1(_regressors["deaths"].predict(features)[0]))),
-        "injuries": max(0, int(np.expm1(_regressors["injuries"].predict(features)[0]))),
-        "affected": max(0, int(np.expm1(_regressors["affected"].predict(features)[0]))),
-        "damage_k": max(0, int(np.expm1(_regressors["damage"].predict(features)[0]))),
-    }
+    # ML regressor raw outputs — per-type, routed by the argmax-selected top_type.
+    ml_vals = _ml_impact(features, top_type)
 
     # EM-DAT 3-tier medians — disaster-type-specific, historically grounded.
     from ml import emdat_lookup  # noqa: PLC0415
@@ -700,22 +715,33 @@ def _apply_plausibility(
     injuries: int,
     affected: int,
 ) -> tuple[int, int, int]:
-    """Constrain impact estimates to deaths <= injured <= affected.
+    """Constrain impact estimates to a plausible per-type range.
 
-    Per-type floors (_IMPACT_RATIOS) nudge implausibly-low injured/affected
-    relative to deaths; the monotonic ordering clamp is applied last and is the
-    hard guarantee. Zeros are preserved (a death-light type with 0 deaths keeps
-    its EM-DAT-driven affected without inventing deaths or injuries).
+    Three guardrails, applied in order:
+      1. Ceilings — no value may exceed the disaster type's historical 99th-percentile
+         (_EMDAT_P99). The safety net against absurd over-predictions (e.g. 100M
+         affected for a single flood).
+      2. Floors — per-type injured/affected-per-death ratios (_IMPACT_RATIOS) nudge
+         implausibly-low values upward; only raise, then re-cap to p99.
+      3. Ordering — deaths <= injured <= affected, the hard guarantee, applied last.
+    Zeros are preserved where appropriate (a death-light type with 0 deaths keeps its
+    EM-DAT-driven affected without inventing deaths or injuries).
     """
-    inj_per_death, aff_per_death = _IMPACT_RATIOS.get(disaster_type, _IMPACT_RATIOS_FALLBACK)
+    p99 = _EMDAT_P99.get(disaster_type, _P99_FALLBACK)
 
-    # Floors derived from deaths (only raise, never lower the blended values).
+    # 1. Ceilings — clamp to the per-type 99th percentile.
+    deaths = min(max(0, deaths), p99["deaths"])
+    affected = min(max(0, affected), p99["affected"])
+
+    # 2. Floors derived from deaths (only raise), then re-cap affected to p99.
+    inj_per_death, aff_per_death = _IMPACT_RATIOS.get(disaster_type, _IMPACT_RATIOS_FALLBACK)
     if deaths > 0:
         injuries = max(injuries, int(round(deaths * inj_per_death)))
         affected = max(affected, int(round(deaths * aff_per_death)))
+    affected = min(affected, p99["affected"])
 
-    # Hard ordering guarantee: deaths <= injured <= affected.
-    injuries = max(injuries, deaths)
+    # 3. Hard ordering guarantee: deaths <= injured <= affected.
+    injuries = min(max(injuries, deaths), affected)
     affected = max(affected, injuries)
 
     return max(0, deaths), max(0, injuries), max(0, affected)
@@ -749,7 +775,13 @@ def _blend_and_constrain_impact(
     damage_k   = int(0.35 * emdat_damage_k + 0.65 * ml_vals["damage_k"])
 
     deaths, injuries, affected = _apply_plausibility(disaster_type, deaths, injuries, affected)
-    return deaths, injuries, affected, max(0, damage_k)
+
+    # Damage ceiling: never exceed the type's historical p99 (_EMDAT_P99 stores full
+    # USD; damage_k is thousands USD). Mirrors the p99 caps in _apply_plausibility.
+    p99 = _EMDAT_P99.get(disaster_type, _P99_FALLBACK)
+    damage_k = min(max(0, damage_k), p99["damage_usd"] // 1000)
+
+    return deaths, injuries, affected, damage_k
 
 
 def _safe_encode(le, value: str) -> int:

@@ -86,3 +86,44 @@ def test_blend_handles_empty_emdat_stats():
     d, i, a, dmg = predictor._blend_and_constrain_impact("Storm", ml_vals, {})
     assert d <= i <= a
     assert dmg >= 0
+
+
+# ── p99 ceiling guardrails (v4.3) ────────────────────────────────────────────
+
+def test_affected_capped_at_type_p99():
+    # Absurd affected for a Wildfire (p99 affected = 50,000) must be clamped down.
+    cap = predictor._EMDAT_P99["Wildfire"]["affected"]
+    d, i, a = predictor._apply_plausibility("Wildfire", deaths=0, injuries=0, affected=10_000_000)
+    assert a == cap
+    assert d == 0 and i == 0
+
+
+def test_deaths_capped_at_type_p99():
+    # Absurd deaths for a Wildfire (p99 deaths = 50) must be clamped down.
+    cap = predictor._EMDAT_P99["Wildfire"]["deaths"]
+    d, i, a = predictor._apply_plausibility("Wildfire", deaths=999_999, injuries=0, affected=0)
+    assert d == cap
+    assert d <= i <= a
+
+
+def test_damage_capped_at_type_p99():
+    # Blended damage must never exceed the type's p99 (stored full USD -> thousands).
+    cap_k = predictor._EMDAT_P99["Wildfire"]["damage_usd"] // 1000
+    ml_vals = {"deaths": 0, "injuries": 0, "affected": 0, "damage_k": 10**12}
+    _d, _i, _a, dmg = predictor._blend_and_constrain_impact("Wildfire", ml_vals, {})
+    assert dmg == cap_k
+
+
+def test_select_regressor_routes_per_type_then_global(monkeypatch):
+    class _M:
+        def __init__(self, tag):
+            self.tag = tag
+    fake = {
+        "structure": "per_type_v1",
+        "per_type": {"Flood": {"deaths": _M("flood_deaths")}},
+        "global": {"deaths": _M("global_deaths"), "injuries": _M("global_inj")},
+    }
+    monkeypatch.setattr(predictor, "_regressors", fake)
+    assert predictor._select_regressor("deaths", "Flood").tag == "flood_deaths"    # per-type hit
+    assert predictor._select_regressor("deaths", "Storm").tag == "global_deaths"   # type fallback
+    assert predictor._select_regressor("injuries", "Flood").tag == "global_inj"    # target fallback

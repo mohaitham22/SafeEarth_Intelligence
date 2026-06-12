@@ -177,20 +177,23 @@ for dtype, w in sorted(CUSTOM_CLASS_WEIGHTS.items(), key=lambda x: x[1]):
 
 
 # ── Regression targets ────────────────────────────────────────────────────────
-print("\n=== Regression targets (log1p) ===")
+# v4.3 regressors are PER-TYPE + DROP-NULL: targets keep NaN (never fill with 0,
+# which poisoned the low-coverage targets and produced absurd values like injuries=1
+# next to billion-dollar damage). See
+# streamlit_eda/experiments/combined_regressor_experiment.py.
+print("\n=== Regression targets (per-type, drop-null, log1p) ===")
 TARGET_COLS = {
     "deaths":   "Total Deaths",
     "injuries": "No Injured",
     "affected": "No Affected",
     "damage":   "Total Damages ('000 US$)",
 }
-for col in TARGET_COLS.values():
-    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).clip(lower=0)
-
-y_deaths_log   = np.log1p(df[TARGET_COLS["deaths"]].values)
-y_injuries_log = np.log1p(df[TARGET_COLS["injuries"]].values)
-y_affected_log = np.log1p(df[TARGET_COLS["affected"]].values)
-y_damage_log   = np.log1p(df[TARGET_COLS["damage"]].values)
+RF_TARGETS = {"injuries", "affected"}
+MIN_TYPE_ROWS = 30  # below this observed-row count, a type x target falls back to global
+raw_targets = {
+    key: pd.to_numeric(df[col], errors="coerce").clip(lower=0).values  # NaN preserved
+    for key, col in TARGET_COLS.items()
+}
 
 
 # ── Test CSV preprocessing ────────────────────────────────────────────────────
@@ -399,26 +402,40 @@ print(f"Macro F1   (v3: 0.7106)  ->  v4.1: {final_macro:.4f}")
 print(f"Weighted F1(v3: 0.7484)  ->  v4.1: {final_wf1:.4f}")
 
 
-# ── Train impact regressors ───────────────────────────────────────────────────
-print("\n=== Training impact regressors (16 features) ===")
-xgb_deaths = XGBRegressor(
-    n_estimators=300, max_depth=5, learning_rate=0.08,
-    subsample=0.8, colsample_bytree=0.8, random_state=42, n_jobs=-1, verbosity=0,
-)
-xgb_damage = XGBRegressor(
-    n_estimators=300, max_depth=5, learning_rate=0.08,
-    subsample=0.8, colsample_bytree=0.8, random_state=42, n_jobs=-1, verbosity=0,
-)
-rf_injuries = RandomForestRegressor(
-    n_estimators=200, max_depth=10, min_samples_leaf=5, random_state=42, n_jobs=-1,
-)
-rf_affected = RandomForestRegressor(
-    n_estimators=200, max_depth=10, min_samples_leaf=5, random_state=42, n_jobs=-1,
-)
-xgb_deaths.fit(X_train, y_deaths_log);   print("  xgb_deaths  done")
-xgb_damage.fit(X_train, y_damage_log);   print("  xgb_damage  done")
-rf_injuries.fit(X_train, y_injuries_log); print("  rf_injuries done")
-rf_affected.fit(X_train, y_affected_log); print("  rf_affected done")
+# ── Train impact regressors (per-type + drop-null + global fallback) ──────────
+print("\n=== Training impact regressors (per-type, drop-null, 16 features) ===")
+
+def _make_impact_regressor(key):
+    if key in RF_TARGETS:
+        return RandomForestRegressor(
+            n_estimators=200, max_depth=10, min_samples_leaf=5, random_state=42, n_jobs=-1,
+        )
+    return XGBRegressor(
+        n_estimators=300, max_depth=5, learning_rate=0.08,
+        subsample=0.8, colsample_bytree=0.8, random_state=42, n_jobs=-1, verbosity=0,
+    )
+
+_type_arr = df["Disaster Type"].values
+_classes = [str(t) for t in le_target.classes_]
+global_regressors = {}
+per_type_regressors = {t: {} for t in _classes}
+for key in TARGET_COLS:
+    raw = raw_targets[key]
+    obs = ~np.isnan(raw)
+    g = _make_impact_regressor(key)
+    g.fit(X_train[obs], np.log1p(raw[obs]))
+    global_regressors[key] = g
+    n_pt = 0
+    for t in _classes:
+        sel = (_type_arr == t)
+        rr = raw[sel]
+        o = ~np.isnan(rr)
+        if o.sum() >= MIN_TYPE_ROWS:
+            m = _make_impact_regressor(key)
+            m.fit(X_train[sel][o], np.log1p(rr[o]))
+            per_type_regressors[t][key] = m
+            n_pt += 1
+    print(f"  {key:<9} global on {obs.sum():,} obs rows | per-type models: {n_pt}/{len(_classes)}")
 
 
 # ── SHAP ──────────────────────────────────────────────────────────────────────
@@ -446,10 +463,11 @@ classifier_bundle = {
     "targets_are_log1p": True,
 }
 impact_regressors = {
-    "deaths":   xgb_deaths,
-    "injuries": rf_injuries,
-    "affected": rf_affected,
-    "damage":   xgb_damage,
+    "structure":         "per_type_v1",
+    "per_type":          per_type_regressors,
+    "global":            global_regressors,
+    "targets_are_log1p": True,
+    "min_type_rows":     MIN_TYPE_ROWS,
 }
 
 joblib.dump(classifier_bundle, MODELS_DIR / "disaster_predictor.pkl")
@@ -483,8 +501,11 @@ lp = _b["lgb_model"].predict_proba(pd.DataFrame(X_demo, columns=FEATURE_NAMES))
 cp = _b["cat_model"].predict_proba(X_demo)
 proba = _b["xgb_weight"]*xp + _b["lgb_weight"]*lp + _b["cat_weight"]*cp
 cidx = int(np.argmax(proba[0]))
-print(f"  Predicted: {_b['le_target'].classes_[cidx]}  (prob={float(proba[0][cidx]):.4f})")
-deaths_p = int(np.expm1(_r["deaths"].predict(X_demo)[0]).clip(min=0))
+pred_type = str(_b["le_target"].classes_[cidx])
+print(f"  Predicted: {pred_type}  (prob={float(proba[0][cidx]):.4f})")
+# Route the deaths regressor by predicted type (per-type bundle), global fallback.
+_deaths_reg = _r["per_type"].get(pred_type, {}).get("deaths") or _r["global"]["deaths"]
+deaths_p = int(np.expm1(_deaths_reg.predict(X_demo)[0]).clip(min=0))
 print(f"  Deaths: {deaths_p:,}")
 print()
 print("ALL DONE -- 3 pkl files saved to backend/saved_models/")

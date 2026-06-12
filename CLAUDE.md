@@ -230,6 +230,7 @@ Phase 8  ✅ DONE         Admin page (real 5-tab panel) + docker-compose.yml + R
 | 2026-06-03 | Home role-gating + ads | Home page now role-aware via the Phase-1 helper. Hero hides "Create free account" for any logged-in user (HeroCtas). 30-day forecast section: **guest/free → ADS**, **subscriber → upgrade prompt**, **premium → real forecast for their newest subscription region** (`HomeForecastSection`/`HomeAds`/`HomePremiumForecast`). New **`ads` table** (9th) + public `GET /ads` + seed (Studio editor = Phase 10). For this page **free = not-logged-in (guest)**. **146/146 tests** (+3 ads), build clean 17/17. | Premium forecast derives continent from coords + uses region_name as country (subscription has no country/continent). Home is `revalidate=3600` so Studio ad edits take up to 1h. | Phase 10 Studio editor (admin ads CRUD) |
 | 2026-06-05 | Full admin panel | **8 new admin endpoints** (`GET/PATCH /admin/users`, `GET /admin/stats`, `GET /admin/model-stats`, `GET /admin/alerts/dispatch-preview`, `GET/POST/PATCH/DELETE /admin/ads` + image upload) + **`POST /alerts/monthly-dispatch`** (sends full alert-table digest email per premium user). `backend/ml/model_info.py` as single source for v4.2 constants. `monthly_digest.html` Jinja2 template. Frontend rebuilt to **6-tab admin panel** (Overview/Users/Studio/Model Stats/Alerts/Payments). `ADMIN_API.md` + `n8n/monthly_digest.json`. **189/189 tests**, build clean 17/17. | Monthly digest emails still dev-log until `RESEND_API_KEY` set. Studio image upload writes to `backend/static/ads/` (local fs). | — |
 | 2026-06-07 | 3 bug fixes | **(1) Analytics Continents tab:** metric selector no longer disappears when a disaster type is chosen — root cause was `...(isTypeFiltered ? [] : [metric])` hiding it because per-type deaths/damage didn't exist. Enriched `build_continent_stats` + `continent_stats.json` with `deaths_by_type`/`damage_by_type`; `ContinentsTab` keeps both filters always-visible and applies metric × type independently. **(2) Risk Level Classifier (Card 3) numbers:** risk score was pinned to single digits — `_compute_risk_score` divided *median* impacts by *p99* (≈0), so 85% of the formula's weight was dead and the score ≈ `probability×15`. Switched the 3 impact terms to log-scaled normalisation (`_log_norm`); scores now span 0–100 and track severity. **(3) 30-Day Alert Forecast region box:** only showed the user's subscriptions (e.g. just "Cairo"). New `frontend/lib/capitals.ts` config (46 countries+capitals+coords, exact EM-DAT names) now drives the dropdown; every option returns a working forecast. tsc clean, `npm run build` 17/17, generation tests pass; risk fix verified before/after on real `predict()`. | Risk-map (`build_risk_map`) still uses linear p99 norm — left as-is (separate feature, prob fixed at 1.0). `alerts.premium.noRegion.*` string keys now unused (harmless). | — |
+| 2026-06-12 | Impact regressors: per-type + drop-null + p99 guardrails | Rebuilt the deaths/injuries/affected/damage regressors. Root cause of absurd values (e.g. injuries=1 next to $1.5B damage): regressors were type-blind AND nulls filled with 0 (73% of injuries rows were fake zeros → model learns ~0). New: **per-type** regressors (one per disaster type; global drop-null fallback for type×target combos below `MIN_TYPE_ROWS=30`) trained **drop-null** (only observed-target rows). New `impact_regressor.pkl` = `{structure:"per_type_v1", per_type, global, ...}`. `predictor.py` routes by `disaster_type` (`_select_regressor`/`_ml_impact`) + **p99 ceilings** in `_apply_plausibility` (deaths/affected) and `_blend_and_constrain_impact` (damage). Honest-holdout error-factor cut: deaths 3×→1.9×, injuries 9×→2.8×, affected 24×→4.3×, **damage 111×→2.7×**. `scripts/retrain_regressors.py` retrains regressors only (reuses v4.2 encoders) — **classifier v4.2 + SHAP untouched**. 4 new guardrail tests in `test_impact_plausibility.py`. | Blend weights still tuned for old weak regressors (deaths/affected 70% EM-DAT) — could shift toward ML now (follow-up). `impact_regressor.pkl` 21→50 MB. v4.2 regressor backup: `impact_regressor_pretypeaware_backup.pkl`. 4 isolated experiments kept in `streamlit_eda/experiments/`. | — |
 
 *Append a row after every session — keep each row to 1–2 lines max. Move detailed notes to the Session Notes section below.*
 
@@ -1626,6 +1627,50 @@ network, no rate-limit cost (the only feasible "hover shows risk here").
 strings + updated `map.subtitle`. Reused `lib/geo`, `lib/permissions` (`meetsRole`), `SeverityBadge`,
 `endpoints.predictions.predict`. `npm run build` clean (17/17, `/map` still Static). Unused `leaflet.heat`
 left in package.json (harmless).
+
+---
+
+**Session 2026-06-12 — Impact regressors: per-type + drop-null + p99 guardrails**
+
+User-reported symptom: impact numbers were illogical (e.g. injuries=1 next to billion-dollar
+damage; affected≈100M). Diagnosed via 4 isolated, read-only experiments in `streamlit_eda/experiments/`
+(all evaluate on the **honest holdout** = test rows where the target is actually observed):
+- `combined_regressor_experiment.py` is the decisive one (2×3 grid: {global, per-type} × {fill-0, fill-median, drop-null}).
+- Root cause: the regressors were (a) **type-blind** (same 16 features as the classifier, no `disaster_type`),
+  and (b) trained with **nulls filled with 0** — but an EM-DAT null means "not recorded", not zero. With
+  injuries 27% / damage 37% coverage, the majority of training targets were fake zeros → the model learns
+  "≈0" and collapses, then badly mis-predicts real events.
+- Winner: **per-type + drop-null**. Honest-holdout log-MAE error factor: deaths 3×→1.9×, injuries 9×→2.8×,
+  affected 24×→4.3×, **damage 111×→2.7×**.
+
+What shipped (regressor-only — classifier v4.2 and SHAP are untouched):
+- `scripts/retrain_regressors.py` — retrains ONLY the regressors, reusing the v4.2 bundle's encoders so the
+  feature space matches the deployed classifier exactly (a full `run_training.py` run would change the
+  classifier, which we do not want). Per-type regressors (one per disaster type) trained on observed-target
+  rows only; a global drop-null model is the fallback for type×target combos with < `MIN_TYPE_ROWS=30`
+  observed rows. Self-validates on the honest holdout.
+- New `impact_regressor.pkl` structure: `{"structure":"per_type_v1", "per_type":{type:{deaths,injuries,affected,damage}},
+  "global":{...}, "targets_are_log1p":True, "min_type_rows":30}`. 21 MB → 50 MB (fine; the 114 MB SHAP pkl is
+  not loaded at runtime). Old bundle backed up: `impact_regressor_pretypeaware_backup.pkl`.
+- `backend/ml/predictor.py` — `_select_regressor(target, disaster_type)` (per-type → global fallback) +
+  `_ml_impact(features, disaster_type)`; both `predict()` and `predict_impact()` now route by type.
+  **p99 guardrails** added: `_apply_plausibility` clamps deaths/affected to the type's `_EMDAT_P99` ceiling
+  (before the existing floors + ordering clamp), and `_blend_and_constrain_impact` clamps damage. These are
+  the "extra checks" so values stay in reasonable ranges (e.g. affected for a Wildfire can't exceed 50k).
+- `scripts/run_training.py` — regressor section updated to produce the same per-type bundle, so a future
+  full retrain stays structurally consistent (a `v4.3`-style full retrain would still need its own validation).
+- `backend/tests/test_impact_plausibility.py` — +4 tests (affected/deaths/damage p99 caps + `_select_regressor`
+  routing). **193 passed** with Docker DB up.
+
+Verified: real `predict()` smoke shows logical, ordered values and the original type-blind bug is fixed
+(Flood vs Earthquake at identical Cairo coords now differ). What is NOT affected: the disaster-type classifier,
+probability, severity, alerts (severity-triggered), the map / analytics / trends (precomputed JSON),
+recommendations (RAG), and SHAP. What IS affected (intended): the 4 impact estimates, `uninsured_loss`, the
+display `risk_score` (uses impact terms — but does not feed severity/alerts), PDFs, and forecast impact.
+
+Open follow-up: the blend in `_blend_and_constrain_impact` still weights deaths/affected 70% toward EM-DAT
+medians (tuned when the regressors were weak). With the regressors now far better, that could shift toward
+the ML side — a separate, validate-first tuning task.
 
 ---
 

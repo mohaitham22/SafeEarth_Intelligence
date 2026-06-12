@@ -1,0 +1,43 @@
+{
+  "deaths": {
+    "coverage": 0.684,
+    "train_observed_median": 17.0,
+    "honest_holdout_rows": 8940,
+    "A_fill_zero": 1.0421,
+    "B_fill_median": 0.9433,
+    "C_drop_nulls": 0.877,
+    "B_illusion_on_filled_holdout": 0.7702
+  },
+  "injuries": {
+    "coverage": 0.267,
+    "train_observed_median": 50.0,
+    "honest_holdout_rows": 3495,
+    "A_fill_zero": 2.1919,
+    "B_fill_median": 1.2758,
+    "C_drop_nulls": 1.1097,
+    "B_illusion_on_filled_holdout": 0.4476
+  },
+  "affected": {
+    "coverage": 0.59,
+    "train_observed_median": 15000.0,
+    "honest_holdout_rows": 7705,
+    "A_fill_zero": 3.1973,
+    "B_fill_median": 1.8632,
+    "C_drop_nulls": 1.7077,
+    "B_illusion_on_filled_holdout": 1.344
+  },
+  "damage": {
+    "coverage": 0.371,
+    "train_observed_median": 60000.0,
+    "honest_holdout_rows": 4854,
+    "A_fill_zero": 4.712,
+    "B_fill_median": 1.664,
+    "C_drop_nulls": 1.4015,
+    "B_illusion_on_filled_holdout": 0.8283
+  },
+  "_meta": {
+    "metric": "holdout log1p-scale MAE on OBSERVED-target rows (lower=better)",
+    "note": "B_illusion_on_filled_holdout evaluates the median model on median-FILLED targets \u2014 artificially low, NOT a real score. Shown to expose the trap.",
+    "runtime_sec": 10.0
+  }
+}
