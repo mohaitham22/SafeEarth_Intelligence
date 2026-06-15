@@ -124,6 +124,8 @@ const STRINGS_EN: Record<string, string> = {
   "auth.email.placeholder":     "you@example.com",
   "auth.password.label":        "Password",
   "auth.password.placeholder":  "At least 8 characters",
+  "auth.password.show":         "Show",
+  "auth.password.hide":         "Hide",
   "auth.fullName.label":        "Full name",
   "auth.fullName.placeholder":  "Jane Doe (optional)",
   "auth.confirm.label":         "Confirm password",

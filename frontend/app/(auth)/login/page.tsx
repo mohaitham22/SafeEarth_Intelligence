@@ -52,6 +52,7 @@ function LoginInner() {
 
   const [email, setEmail]       = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<ErrorKey>(null)
 
@@ -128,15 +129,25 @@ function LoginInner() {
             <label htmlFor="password" className="block text-sm font-medium text-slate-700">
               {S("auth.password.label")}
             </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
-            />
+            <div className="relative mt-1">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="block w-full rounded-md border border-slate-300 px-3 py-2 pr-16 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-800"
+              >
+                {showPassword ? S("auth.password.hide") : S("auth.password.show")}
+              </button>
+            </div>
           </div>
 
           <button
