@@ -176,30 +176,6 @@ export function PredictionResultCard({
         </div>
       </div>
 
-      {result.shap_explanation.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-slate-700">
-            {S("result.shap.title")}
-          </h3>
-          <ul className="mt-2 space-y-1.5">
-            {result.shap_explanation.map((f, i) => (
-              <li key={i} className="flex items-center gap-3 text-xs">
-                <span className="w-32 shrink-0 text-slate-600 truncate">{f.feature}</span>
-                <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden">
-                  <div
-                    className="h-full bg-slate-700"
-                    style={{ width: `${Math.min(100, f.contribution_pct)}%` }}
-                  />
-                </div>
-                <span className="w-12 text-right tabular-nums text-slate-700">
-                  {f.contribution_pct.toFixed(1)}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {timeseriesData && (
         <MiniHistoricalChart
           disasterType={result.disaster_type}
